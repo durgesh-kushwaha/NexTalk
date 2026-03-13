@@ -48,6 +48,28 @@ function resolveConfiguredBackendOrigin() {
   return '';
 }
 
+function saveBackendOrigin(origin) {
+  const sanitized = sanitizeBackendOrigin(origin);
+  if (!sanitized) {
+    return '';
+  }
+  try {
+    localStorage.setItem('nextalk_backend_origin', sanitized);
+  } catch (error) {
+  }
+  return sanitized;
+}
+
+function promptForBackendOrigin() {
+  const message = 'Enter backend URL (example: https://your-backend-domain.com)';
+  const input = window.prompt(message, '');
+  const sanitized = saveBackendOrigin(input || '');
+  if (!sanitized) {
+    return '';
+  }
+  return sanitized;
+}
+
 function toApiBase(value) {
   const base = trimTrailingSlash(value);
   if (!base) {
@@ -104,6 +126,7 @@ const API_BASE = resolveApiBase();
 
 window.nextalkApiBase = API_BASE;
 window.getNextalkBackendOrigin = getNextalkBackendOrigin;
+window.setNextalkBackendOrigin = saveBackendOrigin;
 
 function clearSession() {
   localStorage.removeItem('nextalk_token');
@@ -142,13 +165,17 @@ function buildHeaders(extraHeaders = {}, isFormData = false) {
 }
 
 async function apiFetch(endpoint, options = {}) {
-  const isFormData = typeof FormData !== 'undefined' && options.body instanceof FormData;
-  let response;
-  try {
-    response = await fetch(`${API_BASE}${endpoint}`, {
+  const executeFetch = async function (baseUrl) {
+    return fetch(`${baseUrl}${endpoint}`, {
       ...options,
       headers: buildHeaders(options.headers, isFormData),
     });
+  };
+
+  const isFormData = typeof FormData !== 'undefined' && options.body instanceof FormData;
+  let response;
+  try {
+    response = await executeFetch(API_BASE);
   } catch (error) {
     throw new Error('Cannot reach NexTalk API. Open app with ?backend=https://YOUR-BACKEND-DOMAIN once, then retry.');
   }
@@ -165,6 +192,31 @@ async function apiFetch(endpoint, options = {}) {
 
   if (!response.ok) {
     const message = data.message || response.statusText;
+
+    // Vercel returns NOT_FOUND when /api is not mapped to backend.
+    if (response.status === 404 && /NOT_FOUND/i.test(message) && API_BASE === '/api') {
+      const selectedOrigin = promptForBackendOrigin();
+      if (selectedOrigin) {
+        const retryBase = `${selectedOrigin}/api`;
+        const retryResponse = await executeFetch(retryBase);
+        const retryText = await retryResponse.text();
+        let retryData = {};
+        if (retryText) {
+          try {
+            retryData = JSON.parse(retryText);
+          } catch (error) {
+            retryData = { message: retryText };
+          }
+        }
+        if (!retryResponse.ok) {
+          throw new Error(retryData.message || retryResponse.statusText);
+        }
+        window.location.reload();
+        return retryData;
+      }
+      throw new Error('Backend URL is not configured. Open app with ?backend=https://YOUR-BACKEND-DOMAIN');
+    }
+
     const isAuthEndpoint = endpoint.startsWith('/auth/');
     if ((response.status === 401 || response.status === 403) && !isAuthEndpoint) {
       handleUnauthorized(message);
