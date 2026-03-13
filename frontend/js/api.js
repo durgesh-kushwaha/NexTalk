@@ -2,6 +2,52 @@ function trimTrailingSlash(value) {
   return (value || '').replace(/\/+$/, '');
 }
 
+function sanitizeBackendOrigin(value) {
+  const candidate = trimTrailingSlash((value || '').trim());
+  if (!candidate) {
+    return '';
+  }
+  if (!/^https?:\/\//i.test(candidate)) {
+    return '';
+  }
+  return candidate;
+}
+
+function resolveConfiguredBackendOrigin() {
+  let fromQuery = '';
+  try {
+    const url = new URL(window.location.href);
+    fromQuery = sanitizeBackendOrigin(url.searchParams.get('backend') || '');
+    if (fromQuery) {
+      localStorage.setItem('nextalk_backend_origin', fromQuery);
+    }
+  } catch (error) {
+    fromQuery = '';
+  }
+
+  if (fromQuery) {
+    return fromQuery;
+  }
+
+  try {
+    const legacyApiBase = (localStorage.getItem('nextalk_api_base') || '').trim();
+    const storedOrigin = sanitizeBackendOrigin(localStorage.getItem('nextalk_backend_origin') || '');
+    if (storedOrigin) {
+      return storedOrigin;
+    }
+    if (legacyApiBase) {
+      const normalized = toApiBase(legacyApiBase);
+      if (normalized.startsWith('http://') || normalized.startsWith('https://')) {
+        return normalized.replace(/\/api\/?$/, '');
+      }
+    }
+  } catch (error) {
+    return '';
+  }
+
+  return '';
+}
+
 function toApiBase(value) {
   const base = trimTrailingSlash(value);
   if (!base) {
@@ -11,15 +57,27 @@ function toApiBase(value) {
 }
 
 function resolveApiBase() {
+  const configuredOrigin = resolveConfiguredBackendOrigin();
+  if (configuredOrigin) {
+    return `${configuredOrigin}/api`;
+  }
+
   let configuredBase = '';
   try {
-    configuredBase = (window.NEXTALK_API_BASE || localStorage.getItem('nextalk_api_base') || '').trim();
+    configuredBase = (window.NEXTALK_API_BASE || '').trim();
   } catch (error) {
     configuredBase = '';
   }
 
   if (configuredBase) {
-    return toApiBase(configuredBase);
+    const normalized = toApiBase(configuredBase);
+    if (normalized.startsWith('http://') || normalized.startsWith('https://')) {
+      try {
+        localStorage.setItem('nextalk_backend_origin', normalized.replace(/\/api\/?$/, ''));
+      } catch (error) {
+      }
+    }
+    return normalized;
   }
 
   const host = window.location.hostname;
@@ -92,7 +150,7 @@ async function apiFetch(endpoint, options = {}) {
       headers: buildHeaders(options.headers, isFormData),
     });
   } catch (error) {
-    throw new Error('Cannot reach NexTalk API. Ensure backend is running and API base is configured.');
+    throw new Error('Cannot reach NexTalk API. Open app with ?backend=https://YOUR-BACKEND-DOMAIN once, then retry.');
   }
 
   const text = await response.text();
