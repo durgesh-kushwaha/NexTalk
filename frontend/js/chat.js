@@ -7,8 +7,10 @@ const NOTIF_DESKTOP_KEY = 'nextalk_notif_desktop';
 const NOTIF_MESSAGE_SOUND_KEY = 'nextalk_notif_message_sound';
 const NOTIF_CALL_SOUND_KEY = 'nextalk_notif_call_sound';
 const MAX_IMAGE_FILE_SIZE = 5 * 1024 * 1024;
-const BACKEND_ORIGIN = 'http://localhost:8080';
-const WS_BASE = 'http://localhost:8080/ws';
+const BACKEND_ORIGIN = typeof getNextalkBackendOrigin === 'function'
+  ? getNextalkBackendOrigin().replace(/\/$/, '')
+  : 'http://localhost:8080';
+const WS_BASE = `${BACKEND_ORIGIN}/ws`;
 
 if (!TOKEN || !CURRENT_USER) {
   window.location.replace('index.html');

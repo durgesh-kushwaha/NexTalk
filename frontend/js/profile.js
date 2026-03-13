@@ -11,7 +11,9 @@ const avatarFileInput = document.getElementById('avatar-file');
 const bioInput = document.getElementById('bio');
 const avatarPreview = document.getElementById('avatar-preview');
 const themeBtn = document.getElementById('theme-toggle-btn');
-const BACKEND_ORIGIN = 'http://localhost:8080';
+const BACKEND_ORIGIN = typeof getNextalkBackendOrigin === 'function'
+  ? getNextalkBackendOrigin().replace(/\/$/, '')
+  : 'http://localhost:8080';
 
 function avatarSrc(path) {
   if (!path) {
