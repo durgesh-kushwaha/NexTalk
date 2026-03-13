@@ -1293,6 +1293,17 @@ messagesContainer.addEventListener('click', (event) => {
   openAvatarViewer(imageUrl, 'Image');
 });
 
+messagesContainer.addEventListener('contextmenu', (event) => {
+  if (!isTouchLayout()) {
+    return;
+  }
+  const targetInMessage = event.target.closest('.message-bubble, .message-image-link, .message-image');
+  if (!targetInMessage) {
+    return;
+  }
+  event.preventDefault();
+});
+
 messagesContainer.addEventListener('wheel', (event) => {
   if (isTouchLayout()) {
     return;

@@ -1495,6 +1495,13 @@ body[data-theme='light'] #btn-end-call {
     max-width: 66vw;
   }
 
+  .message-bubble,
+  .message-bubble *,
+  .message-image-link,
+  .message-image {
+    -webkit-touch-callout: none;
+  }
+
   .local-video {
     top: max(10px, env(safe-area-inset-top));
     right: max(10px, env(safe-area-inset-right));
