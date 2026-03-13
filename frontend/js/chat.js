@@ -1,0 +1,1466 @@
+const TOKEN = localStorage.getItem('nextalk_token');
+const CURRENT_USER = localStorage.getItem('nextalk_username');
+const DISPLAY_NAME = localStorage.getItem('nextalk_display');
+const USER_ID = localStorage.getItem('nextalk_user_id');
+const THEME_KEY = 'nextalk_theme';
+const NOTIF_DESKTOP_KEY = 'nextalk_notif_desktop';
+const NOTIF_MESSAGE_SOUND_KEY = 'nextalk_notif_message_sound';
+const NOTIF_CALL_SOUND_KEY = 'nextalk_notif_call_sound';
+const MAX_IMAGE_FILE_SIZE = 5 * 1024 * 1024;
+const BACKEND_ORIGIN = 'http://localhost:8080';
+const WS_BASE = 'http://localhost:8080/ws';
+
+if (!TOKEN || !CURRENT_USER) {
+  window.location.replace('index.html');
+}
+
+let stompClient = null;
+let currentConversation = null;
+let activeSubscription = null;
+let conversationsCache = [];
+let searchTimer = null;
+let refreshIntervalId = null;
+let messageLongPressTimer = null;
+let longPressMessageId = null;
+let desktopContextMessageId = null;
+let currentUserAvatarUrl = '';
+let activeChatAvatarUrl = '';
+let replyTarget = null;
+let wheelReplyAccumulator = 0;
+let wheelReplyTimer = null;
+let wheelReplyMessageId = null;
+let desktopNotificationsEnabled = localStorage.getItem(NOTIF_DESKTOP_KEY) !== '0';
+let messageSoundEnabled = localStorage.getItem(NOTIF_MESSAGE_SOUND_KEY) !== '0';
+let callSoundEnabled = localStorage.getItem(NOTIF_CALL_SOUND_KEY) !== '0';
+const conversationSnapshot = new Map();
+const messageSnapshot = new Map();
+const MOBILE_BREAKPOINT = 860;
+
+const sidebar = document.getElementById('sidebar');
+const appShell = document.querySelector('.app-shell');
+const scrim = document.getElementById('scrim');
+const myProfileTrigger = document.getElementById('my-profile-trigger');
+const chatProfileTrigger = document.getElementById('chat-profile-trigger');
+const myDisplayNameEl = document.getElementById('my-display-name');
+const myAvatarEl = document.getElementById('my-avatar');
+const appStatus = document.getElementById('app-status');
+const searchInput = document.getElementById('search-input');
+const listEl = document.getElementById('conversation-list');
+const emptyState = document.getElementById('empty-state');
+const chatView = document.getElementById('chat-view');
+const chatAvatar = document.getElementById('chat-avatar');
+const chatPartnerName = document.getElementById('chat-partner-name');
+const chatStatus = document.getElementById('chat-status');
+const messagesContainer = document.getElementById('messages-container');
+const messageInput = document.getElementById('message-input');
+const sendBtn = document.getElementById('send-btn');
+const attachImageBtn = document.getElementById('attach-image-btn');
+const imageInput = document.getElementById('image-input');
+const newChatModal = document.getElementById('new-chat-modal');
+const userSearchInput = document.getElementById('user-search-input');
+const userSearchResults = document.getElementById('user-search-results');
+const toast = document.getElementById('toast');
+const audioCallBtn = document.getElementById('btn-audio-call');
+const videoCallBtn = document.getElementById('btn-video-call');
+const notifyBtn = document.getElementById('notify-btn');
+const notifSheet = document.getElementById('notif-sheet');
+const notifSheetClose = document.getElementById('notif-sheet-close');
+const notifDesktopToggle = document.getElementById('notif-desktop-toggle');
+const notifMessageSoundToggle = document.getElementById('notif-message-sound-toggle');
+const notifCallSoundToggle = document.getElementById('notif-call-sound-toggle');
+const themeToggleBtn = document.getElementById('theme-toggle-btn');
+const adminBtn = document.getElementById('admin-btn');
+const mobileBackBtn = document.getElementById('mobile-back-btn');
+const msgActionSheet = document.getElementById('msg-action-sheet');
+const msgReplyBtn = document.getElementById('msg-reply-btn');
+const msgInfoBtn = document.getElementById('msg-info-btn');
+const msgDeleteMeBtn = document.getElementById('msg-delete-me-btn');
+const msgDeleteAllBtn = document.getElementById('msg-delete-all-btn');
+const msgSheetCancelBtn = document.getElementById('msg-sheet-cancel-btn');
+const msgContextMenu = document.getElementById('msg-context-menu');
+const ctxReplyBtn = document.getElementById('ctx-reply-btn');
+const ctxInfoBtn = document.getElementById('ctx-info-btn');
+const ctxDeleteMeBtn = document.getElementById('ctx-delete-me-btn');
+const ctxDeleteAllBtn = document.getElementById('ctx-delete-all-btn');
+const messageInfoModal = document.getElementById('message-info-modal');
+const messageInfoClose = document.getElementById('message-info-close');
+const infoSentAt = document.getElementById('info-sent-at');
+const infoDeliveredAt = document.getElementById('info-delivered-at');
+const infoReadAt = document.getElementById('info-read-at');
+const replyStrip = document.getElementById('reply-strip');
+const replyToName = document.getElementById('reply-to-name');
+const replyToPreview = document.getElementById('reply-to-preview');
+const replyCancelBtn = document.getElementById('reply-cancel-btn');
+const avatarViewer = document.getElementById('avatar-viewer');
+const avatarViewerBack = document.getElementById('avatar-viewer-back');
+const avatarViewerImage = document.getElementById('avatar-viewer-image');
+const avatarViewerTitle = document.getElementById('avatar-viewer-title');
+const avatarViewerDownload = document.getElementById('avatar-viewer-download');
+let viewerDownloadUrl = '';
+
+function isTouchLayout() {
+  return window.matchMedia('(hover: none), (pointer: coarse)').matches;
+}
+
+function showToast(text) {
+  toast.textContent = text;
+  toast.classList.add('show');
+  setTimeout(() => toast.classList.remove('show'), 2200);
+}
+
+function setStatus(text, connected) {
+  appStatus.textContent = text;
+  appStatus.style.color = connected ? '#6ee7bf' : '#f6b26b';
+}
+
+function setCallButtonsEnabled(enabled) {
+  audioCallBtn.disabled = !enabled;
+  videoCallBtn.disabled = !enabled;
+}
+
+function isAway() {
+  return document.hidden || !document.hasFocus();
+}
+
+function updateNotifyButton() {
+  if (!desktopNotificationsEnabled && !messageSoundEnabled && !callSoundEnabled) {
+    notifyBtn.innerHTML = '<span class="material-symbols-rounded">notifications_off</span>';
+    return;
+  }
+  if (desktopNotificationsEnabled && 'Notification' in window && Notification.permission === 'granted') {
+    notifyBtn.innerHTML = '<span class="material-symbols-rounded">notifications_active</span>';
+    return;
+  }
+  notifyBtn.innerHTML = '<span class="material-symbols-rounded">notifications</span>';
+}
+
+function syncNotificationControls() {
+  notifDesktopToggle.checked = desktopNotificationsEnabled;
+  notifMessageSoundToggle.checked = messageSoundEnabled;
+  notifCallSoundToggle.checked = callSoundEnabled;
+}
+
+async function requestNotificationPermission() {
+  if (!('Notification' in window)) {
+    return false;
+  }
+  if (Notification.permission === 'granted') {
+    return true;
+  }
+  if (Notification.permission === 'denied') {
+    return false;
+  }
+  const permission = await Notification.requestPermission();
+  return permission === 'granted';
+}
+
+function playNotificationTone(kind) {
+  const AudioCtx = window.AudioContext || window.webkitAudioContext;
+  if (!AudioCtx) {
+    return;
+  }
+  const ctx = new AudioCtx();
+  const osc = ctx.createOscillator();
+  const gain = ctx.createGain();
+  osc.type = 'sine';
+  osc.frequency.value = kind === 'call' ? 960 : 740;
+  gain.gain.value = 0.0001;
+  osc.connect(gain);
+  gain.connect(ctx.destination);
+  const t = ctx.currentTime;
+  gain.gain.setValueAtTime(0.0001, t);
+  gain.gain.exponentialRampToValueAtTime(0.08, t + 0.02);
+  gain.gain.exponentialRampToValueAtTime(0.0001, t + 0.24);
+  osc.start(t);
+  osc.stop(t + 0.26);
+  setTimeout(() => {
+    ctx.close().catch(() => {});
+  }, 320);
+}
+
+function showDesktopNotification(title, body, tag) {
+  if (!desktopNotificationsEnabled) {
+    return;
+  }
+  if (!('Notification' in window) || Notification.permission !== 'granted') {
+    return;
+  }
+  try {
+    new Notification(title, {
+      body,
+      tag,
+      renotify: true,
+    });
+  } catch (error) {
+  }
+}
+
+function notifyIncomingMessage(conversation, message) {
+  const title = getConversationName(conversation);
+  const content = message || 'New message';
+  showDesktopNotification(title, content, `msg-${conversation.id}`);
+  if (messageSoundEnabled) {
+    playNotificationTone('message');
+  }
+}
+
+function notifyIncomingCall(fromUsername, isVideo) {
+  showDesktopNotification(fromUsername || 'Incoming call', isVideo ? 'Incoming video call' : 'Incoming audio call', `call-${fromUsername || 'incoming'}`);
+  if (callSoundEnabled) {
+    playNotificationTone('call');
+  }
+}
+
+function snapshotConversationActivity(items) {
+  items.forEach((item) => {
+    const marker = `${item.lastMessageAt || ''}|${item.lastMessage || ''}`;
+    const prev = conversationSnapshot.get(item.id);
+    const isCurrent = currentConversation && currentConversation.id === item.id;
+    if (prev && prev !== marker && (!isCurrent || isAway())) {
+      notifyIncomingMessage(item, item.lastMessage || 'New message');
+    }
+    conversationSnapshot.set(item.id, marker);
+  });
+}
+
+function applyTheme(theme) {
+  const nextTheme = theme === 'light' ? 'light' : 'dark';
+  document.body.setAttribute('data-theme', nextTheme);
+  themeToggleBtn.innerHTML = `<span class="material-symbols-rounded">${nextTheme === 'light' ? 'dark_mode' : 'light_mode'}</span>`;
+}
+
+function toggleTheme() {
+  const current = localStorage.getItem(THEME_KEY) || 'dark';
+  const next = current === 'dark' ? 'light' : 'dark';
+  localStorage.setItem(THEME_KEY, next);
+  applyTheme(next);
+}
+
+function canCallCurrentConversation() {
+  if (!currentConversation || currentConversation.type === 'GROUP') {
+    return false;
+  }
+  const partner = getConversationPartner(currentConversation);
+  return !!partner?.username && !!stompClient?.connected;
+}
+
+function updateCallButtonsState() {
+  setCallButtonsEnabled(canCallCurrentConversation());
+}
+
+function safeName(name) {
+  return name ? name.trim() : '';
+}
+
+function getInitial(name) {
+  return safeName(name).slice(0, 1).toUpperCase() || '?';
+}
+
+function resolveMediaUrl(path) {
+  const value = String(path || '').trim();
+  if (!value) {
+    return '';
+  }
+  if (/^(https?:|data:|blob:)/i.test(value)) {
+    return value;
+  }
+  if (value.startsWith('/')) {
+    return `${BACKEND_ORIGIN}${value}`;
+  }
+  return `${BACKEND_ORIGIN}/${value}`;
+}
+
+function setAvatarVisual(element, name, avatarUrl) {
+  if (!element) {
+    return;
+  }
+  const resolved = resolveMediaUrl(avatarUrl);
+  if (resolved) {
+    element.classList.add('avatar-photo');
+    element.innerHTML = `<img src="${escapeHtml(resolved)}" alt="${escapeHtml(name || 'Avatar')}" />`;
+    return;
+  }
+  element.classList.remove('avatar-photo');
+  element.textContent = getInitial(name);
+}
+
+function getAvatarMarkup(name, avatarUrl) {
+  const resolved = resolveMediaUrl(avatarUrl);
+  if (!resolved) {
+    return escapeHtml(getInitial(name));
+  }
+  return `<img src="${escapeHtml(resolved)}" alt="${escapeHtml(name || 'Avatar')}" />`;
+}
+
+function getDownloadNameFromUrl(url) {
+  const clean = String(url || '').split('?')[0];
+  const leaf = clean.split('/').pop() || '';
+  return leaf || `image-${Date.now()}.jpg`;
+}
+
+async function downloadViewerImage() {
+  if (!viewerDownloadUrl) {
+    return;
+  }
+  try {
+    const response = await fetch(viewerDownloadUrl);
+    if (!response.ok) {
+      throw new Error('Download failed');
+    }
+    const blob = await response.blob();
+    const blobUrl = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = blobUrl;
+    a.download = getDownloadNameFromUrl(viewerDownloadUrl);
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    URL.revokeObjectURL(blobUrl);
+  } catch (error) {
+    showToast(error.message || 'Could not download image');
+  }
+}
+
+function openAvatarViewer(url, title) {
+  const resolved = resolveMediaUrl(url);
+  if (!resolved || !avatarViewer || !avatarViewerImage) {
+    return;
+  }
+  viewerDownloadUrl = resolved;
+  avatarViewerImage.src = resolved;
+  avatarViewerTitle.textContent = title || 'Profile Photo';
+  avatarViewer.classList.add('open');
+}
+
+function closeAvatarViewer() {
+  if (!avatarViewer) {
+    return;
+  }
+  avatarViewer.classList.remove('open');
+}
+
+function formatTime(iso) {
+  if (!iso) return '';
+  const date = new Date(iso);
+  const now = new Date();
+  const sameDay = date.toDateString() === now.toDateString();
+  if (sameDay) {
+    return date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+  }
+  return date.toLocaleDateString([], { month: 'short', day: 'numeric' });
+}
+
+function formatDateTime(iso) {
+  if (!iso) {
+    return 'Not yet';
+  }
+  const date = new Date(iso);
+  return date.toLocaleString([], {
+    month: 'short',
+    day: 'numeric',
+    hour: '2-digit',
+    minute: '2-digit',
+  });
+}
+
+function tickIcon() {
+  return '<svg viewBox="0 0 16 16" aria-hidden="true"><path d="M2 8.5 5.4 12 14 3.5"/></svg>';
+}
+
+function getMessageStatusType(message) {
+  if (currentConversation?.type === 'GROUP') {
+    return '';
+  }
+  if (!message) {
+    return '';
+  }
+  const senderId = message.sender?.id || '';
+  const senderUsername = String(message.sender?.username || '').toLowerCase();
+  const mine = (USER_ID && senderId === USER_ID)
+    || (senderUsername && senderUsername === String(CURRENT_USER || '').toLowerCase());
+  if (!mine) {
+    return '';
+  }
+  if (message.readAt) {
+    return 'read';
+  }
+  if (message.deliveredAt) {
+    return 'delivered';
+  }
+  return 'sent';
+}
+
+function getMessageStatusMarkup(message) {
+  const type = getMessageStatusType(message);
+  if (!type) {
+    return '';
+  }
+  const cls = type === 'read' ? 'message-status read' : 'message-status';
+  if (type === 'sent') {
+    return `<span class="${cls}" title="Sent">${tickIcon()}</span>`;
+  }
+  if (type === 'delivered') {
+    return `<span class="${cls}" title="Delivered">${tickIcon()}${tickIcon()}</span>`;
+  }
+  return `<span class="${cls}" title="Read">${tickIcon()}${tickIcon()}</span>`;
+}
+
+function getMessagePreview(message) {
+  if (!message) {
+    return '';
+  }
+  if (message.type === 'IMAGE') {
+    return 'Image';
+  }
+  const text = String(message.content || '').trim();
+  return text.length > 80 ? `${text.slice(0, 77)}...` : text;
+}
+
+function setReplyTarget(message) {
+  if (!message) {
+    return;
+  }
+  replyTarget = {
+    id: message.id,
+    name: message.sender?.displayName || message.sender?.username || 'Message',
+    preview: getMessagePreview(message),
+  };
+  replyToName.textContent = `Replying to ${replyTarget.name}`;
+  replyToPreview.textContent = replyTarget.preview || 'Message';
+  replyStrip.hidden = false;
+  messageInput.focus();
+}
+
+function clearReplyTarget() {
+  replyTarget = null;
+  replyStrip.hidden = true;
+  replyToName.textContent = 'Replying';
+  replyToPreview.textContent = '';
+}
+
+function openMessageInfo(messageId) {
+  const message = messageSnapshot.get(messageId);
+  if (!message) {
+    showToast('Message info unavailable');
+    return;
+  }
+  infoSentAt.textContent = formatDateTime(message.sentAt);
+  infoDeliveredAt.textContent = formatDateTime(message.deliveredAt);
+  infoReadAt.textContent = formatDateTime(message.readAt);
+  messageInfoModal.classList.add('open');
+}
+
+function closeMessageInfo() {
+  messageInfoModal.classList.remove('open');
+}
+
+function escapeHtml(value) {
+  return String(value || '')
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#039;');
+}
+
+function getConversationPartner(conversation) {
+  if (conversation.type === 'GROUP') {
+    return null;
+  }
+  return (conversation.participants || []).find((user) => user.username !== CURRENT_USER) || null;
+}
+
+function getConversationName(conversation) {
+  if (conversation.type === 'GROUP') {
+    return conversation.name || 'Group chat';
+  }
+  const partner = getConversationPartner(conversation);
+  return partner?.displayName || partner?.username || 'Unknown';
+}
+
+function toggleSidebar(open) {
+  sidebar.classList.toggle('open', open);
+  scrim.classList.toggle('active', open);
+}
+
+function isMobileScreen() {
+  return window.innerWidth <= MOBILE_BREAKPOINT;
+}
+
+function setMobileView(mode) {
+  if (!isMobileScreen()) {
+    appShell.classList.remove('mobile-list-mode', 'mobile-chat-mode');
+    return;
+  }
+  appShell.classList.toggle('mobile-list-mode', mode === 'list');
+  appShell.classList.toggle('mobile-chat-mode', mode === 'chat');
+}
+
+function applySidebarModeFromStorage() {
+  const collapsed = localStorage.getItem('nextalk_sidebar_collapsed') === '1';
+  appShell.classList.toggle('sidebar-collapsed', collapsed && window.innerWidth > MOBILE_BREAKPOINT);
+}
+
+function renderConversationList(data) {
+  if (!data.length) {
+    listEl.innerHTML = '<div class="placeholder">No conversations yet. Click New to start one.</div>';
+    return;
+  }
+
+  listEl.innerHTML = '';
+  data.forEach((conversation) => {
+    const row = document.createElement('div');
+    row.className = 'conversation-item';
+    row.dataset.id = conversation.id;
+    const title = getConversationName(conversation);
+    const rawPreview = conversation.lastMessage || '';
+    const previewText = rawPreview.startsWith('/media/chat-images/') ? 'Image' : rawPreview;
+    const preview = previewText ? escapeHtml(previewText) : 'No messages yet';
+    const time = formatTime(conversation.lastMessageAt);
+
+    row.innerHTML = `
+      <div class="avatar">${getAvatarMarkup(title, getConversationPartner(conversation)?.avatarUrl)}</div>
+      <div class="conv-info">
+        <div class="conv-name">${escapeHtml(title)}</div>
+        <div class="conv-preview">${preview}</div>
+      </div>
+      <div class="conv-time">${escapeHtml(time)}</div>
+    `;
+
+    row.addEventListener('click', () => {
+      openConversation(conversation);
+    });
+
+    if (currentConversation?.id === conversation.id) {
+      row.classList.add('active');
+    }
+
+    listEl.appendChild(row);
+  });
+}
+
+function refreshFilteredList() {
+  const query = searchInput.value.trim().toLowerCase();
+  const filtered = conversationsCache.filter((item) => {
+    const title = getConversationName(item).toLowerCase();
+    const preview = (item.lastMessage || '').toLowerCase();
+    return title.includes(query) || preview.includes(query);
+  });
+  renderConversationList(filtered);
+}
+
+function createMessageActionButton(label, handler) {
+  const btn = document.createElement('button');
+  btn.type = 'button';
+  btn.className = 'msg-action-btn';
+  btn.textContent = label;
+  btn.addEventListener('click', (event) => {
+    event.stopPropagation();
+    handler();
+  });
+  return btn;
+}
+
+function closeMessageActionSheet() {
+  msgActionSheet.classList.remove('open');
+  longPressMessageId = null;
+}
+
+function openMessageActionSheet(messageId) {
+  longPressMessageId = messageId;
+  const message = messageSnapshot.get(messageId);
+  const senderId = message?.sender?.id || '';
+  const senderUsername = String(message?.sender?.username || '').toLowerCase();
+  const own = (USER_ID && senderId === USER_ID)
+    || (senderUsername && senderUsername === String(CURRENT_USER || '').toLowerCase());
+  msgDeleteAllBtn.style.display = own ? 'block' : 'none';
+  msgActionSheet.classList.add('open');
+}
+
+function closeDesktopContextMenu() {
+  msgContextMenu.classList.remove('open');
+  desktopContextMessageId = null;
+}
+
+function openDesktopContextMenu(messageId, x, y) {
+  desktopContextMessageId = messageId;
+  const message = messageSnapshot.get(messageId);
+  const senderId = message?.sender?.id || '';
+  const senderUsername = String(message?.sender?.username || '').toLowerCase();
+  const own = (USER_ID && senderId === USER_ID)
+    || (senderUsername && senderUsername === String(CURRENT_USER || '').toLowerCase());
+  ctxDeleteAllBtn.style.display = own ? 'block' : 'none';
+  msgContextMenu.classList.add('open');
+  const menuWidth = 190;
+  const menuHeight = own ? 162 : 124;
+  const left = Math.min(Math.max(8, x), window.innerWidth - menuWidth - 8);
+  const top = Math.min(Math.max(8, y), window.innerHeight - menuHeight - 8);
+  msgContextMenu.style.left = `${left}px`;
+  msgContextMenu.style.top = `${top}px`;
+}
+
+function bindLongPressActions(bubble, messageId) {
+  if (!isTouchLayout()) {
+    return;
+  }
+  const clear = () => {
+    if (messageLongPressTimer) {
+      clearTimeout(messageLongPressTimer);
+      messageLongPressTimer = null;
+    }
+  };
+
+  bubble.addEventListener('touchstart', () => {
+    clear();
+    messageLongPressTimer = setTimeout(() => {
+      openMessageActionSheet(messageId);
+    }, 420);
+  }, { passive: true });
+
+  bubble.addEventListener('touchend', clear, { passive: true });
+  bubble.addEventListener('touchcancel', clear, { passive: true });
+}
+
+function bindSwipeToReply(bubble, message) {
+  let startX = 0;
+  let startY = 0;
+  let active = false;
+  let triggered = false;
+
+  const resetBubble = () => {
+    bubble.style.setProperty('--swipe-x', '0px');
+    bubble.classList.remove('swiping');
+    triggered = false;
+  };
+
+  bubble.addEventListener('touchstart', (event) => {
+    const point = event.touches?.[0];
+    if (!point) {
+      return;
+    }
+    startX = point.clientX;
+    startY = point.clientY;
+    active = true;
+    triggered = false;
+    bubble.classList.add('swiping');
+  }, { passive: true });
+
+  bubble.addEventListener('touchmove', (event) => {
+    if (!active) {
+      return;
+    }
+    const point = event.touches?.[0];
+    if (!point) {
+      return;
+    }
+    const dx = point.clientX - startX;
+    const dy = Math.abs(point.clientY - startY);
+    if (dy > 34) {
+      active = false;
+      resetBubble();
+      return;
+    }
+
+    const clamped = Math.max(-56, Math.min(56, dx));
+    bubble.style.setProperty('--swipe-x', `${clamped}px`);
+
+    if (!triggered && Math.abs(dx) > 44) {
+      triggered = true;
+      active = false;
+      setReplyTarget(message);
+      showToast('Reply attached');
+      resetBubble();
+    }
+  }, { passive: true });
+
+  bubble.addEventListener('touchend', () => {
+    active = false;
+    resetBubble();
+  }, { passive: true });
+
+  bubble.addEventListener('touchcancel', () => {
+    active = false;
+    resetBubble();
+  }, { passive: true });
+
+}
+
+function renderReplyChip(message) {
+  if (!message.replyToMessageId && !message.replyToPreview) {
+    return '';
+  }
+  return `
+    <div class="reply-chip">
+      <strong>Reply</strong>
+      <span>${escapeHtml(message.replyToPreview || 'Message')}</span>
+    </div>
+  `;
+}
+
+async function deleteMessage(messageId, scope) {
+  if (!currentConversation) {
+    return;
+  }
+  try {
+    await api.delete(`/conversations/${currentConversation.id}/messages/${messageId}?scope=${encodeURIComponent(scope)}`);
+    if (scope === 'me') {
+      const bubble = messagesContainer.querySelector(`[data-message-id="${messageId}"]`);
+      if (bubble) {
+        bubble.remove();
+      }
+    }
+  } catch (error) {
+    showToast(error.message || 'Delete failed');
+  }
+}
+
+async function markConversationDelivered() {
+  if (!currentConversation) {
+    return;
+  }
+  try {
+    await api.post(`/conversations/${currentConversation.id}/messages/mark-delivered`, {});
+  } catch (error) {
+  }
+}
+
+async function markConversationRead() {
+  if (!currentConversation || isAway()) {
+    return;
+  }
+  try {
+    await api.post(`/conversations/${currentConversation.id}/messages/mark-read`, {});
+  } catch (error) {
+  }
+}
+
+async function loadConversations(quiet) {
+  try {
+    const data = await api.get('/conversations');
+    conversationsCache = data.sort((a, b) => {
+      const t1 = a.lastMessageAt ? new Date(a.lastMessageAt).getTime() : 0;
+      const t2 = b.lastMessageAt ? new Date(b.lastMessageAt).getTime() : 0;
+      return t2 - t1;
+    });
+    snapshotConversationActivity(conversationsCache);
+    if (currentConversation) {
+      const updated = conversationsCache.find((item) => item.id === currentConversation.id);
+      if (updated) {
+        currentConversation = updated;
+        setChatHeader(currentConversation);
+      }
+    }
+    refreshFilteredList();
+    if (!currentConversation && conversationsCache.length && !isMobileScreen()) {
+      await openConversation(conversationsCache[0]);
+    }
+  } catch (error) {
+    if (!quiet) {
+      showToast(error.message || 'Failed to load conversations');
+    }
+    listEl.innerHTML = '<div class="placeholder">Could not load conversations.</div>';
+  }
+}
+
+async function loadCurrentUserProfile() {
+  try {
+    const me = await api.get('/users/me');
+    const name = me.displayName || me.username || DISPLAY_NAME || CURRENT_USER;
+    currentUserAvatarUrl = me.avatarUrl || '';
+    myDisplayNameEl.textContent = name;
+    setAvatarVisual(myAvatarEl, name, currentUserAvatarUrl);
+  } catch (error) {
+    myDisplayNameEl.textContent = DISPLAY_NAME || CURRENT_USER;
+    setAvatarVisual(myAvatarEl, DISPLAY_NAME || CURRENT_USER, '');
+  }
+}
+
+function setChatHeader(conversation) {
+  const partner = getConversationPartner(conversation);
+  const title = getConversationName(conversation);
+  activeChatAvatarUrl = partner?.avatarUrl || '';
+  setAvatarVisual(chatAvatar, title, activeChatAvatarUrl);
+  chatPartnerName.textContent = title;
+  if (conversation.type === 'GROUP') {
+    chatStatus.textContent = `${conversation.participants?.length || 0} members`;
+    activeChatAvatarUrl = '';
+    setAvatarVisual(chatAvatar, title, '');
+  } else {
+    const online = partner?.status === 'ONLINE';
+    chatStatus.textContent = online ? 'online' : 'offline';
+  }
+  updateCallButtonsState();
+  if (window.webRTC) {
+    window.webRTC.setCallTarget(
+      partner?.username || null,
+      partner?.displayName || partner?.username || null,
+      resolveMediaUrl(partner?.avatarUrl || '')
+    );
+  }
+}
+
+function subscribeConversation(conversationId) {
+  if (activeSubscription) {
+    activeSubscription.unsubscribe();
+    activeSubscription = null;
+  }
+  if (!stompClient || !stompClient.connected) {
+    return;
+  }
+  activeSubscription = stompClient.subscribe(`/topic/conversation/${conversationId}`, (frame) => {
+    const message = JSON.parse(frame.body);
+    appendMessage(message, true);
+    const senderId = message.sender?.id || '';
+    const senderUsername = String(message.sender?.username || '').toLowerCase();
+    const own = (USER_ID && senderId === USER_ID)
+      || (senderUsername && senderUsername === String(CURRENT_USER || '').toLowerCase());
+    if (!own && currentConversation?.id === conversationId) {
+      markConversationDelivered();
+      if (!isAway()) {
+        markConversationRead();
+      }
+    }
+    if (!own && isAway()) {
+      const preview = message.type === 'IMAGE' ? 'Image' : (message.content || 'New message');
+      notifyIncomingMessage(currentConversation || { id: conversationId, name: 'Chat', type: 'PRIVATE', participants: [] }, preview);
+    }
+    loadConversations(true);
+  });
+}
+
+function renderMessageContent(message) {
+  if (message.deletedForEveryone) {
+    return escapeHtml('This message was deleted');
+  }
+  if (message.type === 'IMAGE') {
+    const src = resolveMediaUrl(message.content || '');
+    if (!src) {
+      return escapeHtml('[image unavailable]');
+    }
+    return `<a class="message-image-link" href="${escapeHtml(src)}" data-image-url="${escapeHtml(src)}"><img class="message-image" src="${escapeHtml(src)}" alt="Image" loading="lazy" /></a>`;
+  }
+  return escapeHtml(message.content || '');
+}
+
+function appendMessage(message, smooth) {
+  const messageId = message.id || `temp-${Date.now()}`;
+  messageSnapshot.set(messageId, message);
+  const existing = messagesContainer.querySelector(`[data-message-id="${messageId}"]`);
+  const senderId = message.sender?.id || '';
+  const senderUsername = String(message.sender?.username || '').toLowerCase();
+  const isSent = (USER_ID && senderId === USER_ID)
+    || (senderUsername && senderUsername === String(CURRENT_USER || '').toLowerCase());
+  const bubble = existing || document.createElement('div');
+  bubble.className = `message-bubble ${isSent ? 'sent' : 'received'}`;
+  bubble.dataset.messageId = messageId;
+  bubble.dataset.own = isSent ? '1' : '0';
+  const sender = message.sender?.displayName || message.sender?.username || 'Unknown';
+  const prefix = isSent ? '' : `${escapeHtml(sender)} · `;
+  bubble.innerHTML = `
+    ${renderReplyChip(message)}
+    <div class="bubble-text">${renderMessageContent(message)}</div>
+    <div class="bubble-meta">${prefix}${escapeHtml(formatTime(message.sentAt))}${getMessageStatusMarkup(message)}</div>
+  `;
+  if (!message.deletedForEveryone) {
+    if (isTouchLayout()) {
+      bindLongPressActions(bubble, messageId);
+    }
+    bindSwipeToReply(bubble, message);
+  }
+  if (!isTouchLayout()) {
+    bubble.oncontextmenu = (event) => {
+      event.preventDefault();
+      openDesktopContextMenu(messageId, event.clientX, event.clientY);
+    };
+  }
+  if (!existing) {
+    messagesContainer.appendChild(bubble);
+  }
+  messagesContainer.scrollTo({
+    top: messagesContainer.scrollHeight,
+    behavior: smooth ? 'smooth' : 'auto',
+  });
+}
+
+async function openConversation(conversation) {
+  currentConversation = conversation;
+  clearReplyTarget();
+  if (isMobileScreen()) {
+    setMobileView('chat');
+  }
+  refreshFilteredList();
+  emptyState.style.display = 'none';
+  chatView.style.display = 'grid';
+  setChatHeader(conversation);
+  messagesContainer.innerHTML = '';
+
+  try {
+    const messages = await api.get(`/conversations/${conversation.id}/messages?size=100`);
+    messages.forEach((message) => appendMessage(message, false));
+    await markConversationDelivered();
+    if (!isAway()) {
+      await markConversationRead();
+    }
+  } catch (error) {
+    showToast(error.message || 'Failed to load messages');
+  }
+
+  subscribeConversation(conversation.id);
+  messageInput.focus();
+}
+
+function autoResize() {
+  messageInput.style.height = 'auto';
+  messageInput.style.height = `${Math.min(messageInput.scrollHeight, 130)}px`;
+}
+
+async function sendMessage() {
+  if (!currentConversation) {
+    showToast('Pick a conversation first');
+    return;
+  }
+  const content = messageInput.value.trim();
+  const replyToMessageId = replyTarget?.id || null;
+  if (!content) {
+    return;
+  }
+  messageInput.value = '';
+  autoResize();
+  clearReplyTarget();
+
+  if (stompClient?.connected) {
+    stompClient.publish({
+      destination: `/app/chat/${currentConversation.id}`,
+      body: JSON.stringify({ content, replyToMessageId }),
+    });
+  } else {
+    try {
+      const message = await api.post(`/conversations/${currentConversation.id}/messages`, { content, replyToMessageId });
+      appendMessage(message, true);
+      loadConversations(true);
+    } catch (error) {
+      showToast(error.message || 'Failed to send message');
+    }
+  }
+}
+
+async function sendImageMessage(file) {
+  if (!currentConversation) {
+    showToast('Pick a conversation first');
+    return;
+  }
+  if (!file || !file.type || !file.type.startsWith('image/')) {
+    showToast('Only image files are allowed');
+    return;
+  }
+  if (file.size > MAX_IMAGE_FILE_SIZE) {
+    showToast('Image exceeds 5MB limit');
+    return;
+  }
+  const formData = new FormData();
+  formData.append('image', file);
+  try {
+    const message = await api.postForm(`/conversations/${currentConversation.id}/messages/image`, formData);
+    if (!stompClient?.connected) {
+      appendMessage(message, true);
+    }
+    loadConversations(true);
+  } catch (error) {
+    showToast(error.message || 'Failed to send image');
+  }
+}
+
+async function searchUsers(query) {
+  try {
+    const users = await api.get(`/users/search?q=${encodeURIComponent(query)}`);
+    const items = users.filter((user) => user.username !== CURRENT_USER);
+    if (!items.length) {
+      userSearchResults.innerHTML = '<div class="placeholder">No matching users.</div>';
+      return;
+    }
+    userSearchResults.innerHTML = '';
+
+    items.forEach((user) => {
+      const row = document.createElement('div');
+      const name = user.displayName || user.username;
+      row.className = 'user-result-item';
+      row.innerHTML = `
+        <div class="avatar">${getAvatarMarkup(name, user.avatarUrl)}</div>
+        <div>
+          <div class="user-result-name">${escapeHtml(name)}</div>
+          <div class="user-result-username">@${escapeHtml(user.username)}</div>
+        </div>
+      `;
+      row.addEventListener('click', async () => {
+        try {
+          const conversation = await api.post(`/conversations/private/${user.id}`, {});
+          newChatModal.classList.remove('open');
+          await loadConversations(true);
+          await openConversation(conversation);
+          showToast('Conversation ready');
+        } catch (error) {
+          showToast(error.message || 'Could not create conversation');
+        }
+      });
+      userSearchResults.appendChild(row);
+    });
+  } catch (error) {
+    showToast(error.message || 'User search failed');
+  }
+}
+
+function onConnected() {
+  setStatus('Connected', true);
+  updateCallButtonsState();
+  const handleSignalFrame = (frame) => {
+    const signal = JSON.parse(frame.body);
+    const target = (signal.toUsername || '').toLowerCase();
+    if (target && target !== CURRENT_USER.toLowerCase()) {
+      return;
+    }
+    if (window.webRTC) {
+      window.webRTC.handleSignal(signal);
+    }
+    if (signal.type === 'CALL_REQUEST' && isAway()) {
+      notifyIncomingCall(signal.fromUsername, !!signal.videoEnabled);
+    }
+  };
+  stompClient.subscribe('/user/queue/signals', handleSignalFrame);
+  stompClient.subscribe(`/topic/signals/${CURRENT_USER}`, handleSignalFrame);
+  if (currentConversation) {
+    subscribeConversation(currentConversation.id);
+  }
+}
+
+function connectWebSocket() {
+  setStatus('Connecting', false);
+  stompClient = new StompJs.Client({
+    webSocketFactory: () => new SockJS(WS_BASE),
+    connectHeaders: {
+      Authorization: `Bearer ${TOKEN}`,
+    },
+    reconnectDelay: 5000,
+    onConnect: onConnected,
+    onWebSocketClose: () => {
+      setStatus('Reconnecting', false);
+      updateCallButtonsState();
+    },
+    onStompError: () => {
+      setStatus('Disconnected', false);
+      updateCallButtonsState();
+    },
+  });
+  stompClient.activate();
+}
+
+function sendSignal(signal) {
+  if (!stompClient?.connected) {
+    showToast('Call signaling unavailable');
+    return false;
+  }
+  stompClient.publish({
+    destination: '/app/signal',
+    body: JSON.stringify(signal),
+  });
+  return true;
+}
+
+window.sendSignal = sendSignal;
+
+document.getElementById('new-chat-btn').addEventListener('click', () => {
+  newChatModal.classList.add('open');
+  userSearchResults.innerHTML = '';
+  userSearchInput.value = '';
+  userSearchInput.focus();
+});
+
+document.getElementById('close-new-chat-modal').addEventListener('click', () => {
+  newChatModal.classList.remove('open');
+  userSearchInput.value = '';
+  userSearchResults.innerHTML = '';
+});
+
+document.getElementById('refresh-btn').addEventListener('click', () => {
+  loadConversations(false);
+});
+
+document.getElementById('sidebar-toggle-btn').addEventListener('click', () => {
+  if (window.innerWidth <= MOBILE_BREAKPOINT) {
+    toggleSidebar(!sidebar.classList.contains('open'));
+    return;
+  }
+  const collapsed = !appShell.classList.contains('sidebar-collapsed');
+  appShell.classList.toggle('sidebar-collapsed', collapsed);
+  localStorage.setItem('nextalk_sidebar_collapsed', collapsed ? '1' : '0');
+});
+
+themeToggleBtn.addEventListener('click', toggleTheme);
+
+notifyBtn.addEventListener('click', async () => {
+  notifSheet.classList.toggle('open');
+});
+
+notifSheetClose.addEventListener('click', () => {
+  notifSheet.classList.remove('open');
+});
+
+notifDesktopToggle.addEventListener('change', async () => {
+  if (notifDesktopToggle.checked) {
+    const granted = await requestNotificationPermission();
+    desktopNotificationsEnabled = granted;
+    if (!granted) {
+      showToast('Desktop notifications are blocked by browser settings');
+    }
+  } else {
+    desktopNotificationsEnabled = false;
+  }
+  localStorage.setItem(NOTIF_DESKTOP_KEY, desktopNotificationsEnabled ? '1' : '0');
+  syncNotificationControls();
+  updateNotifyButton();
+});
+
+notifMessageSoundToggle.addEventListener('change', () => {
+  messageSoundEnabled = notifMessageSoundToggle.checked;
+  localStorage.setItem(NOTIF_MESSAGE_SOUND_KEY, messageSoundEnabled ? '1' : '0');
+  updateNotifyButton();
+});
+
+notifCallSoundToggle.addEventListener('change', () => {
+  callSoundEnabled = notifCallSoundToggle.checked;
+  localStorage.setItem(NOTIF_CALL_SOUND_KEY, callSoundEnabled ? '1' : '0');
+  updateNotifyButton();
+});
+
+document.getElementById('profile-btn').addEventListener('click', () => {
+  window.location.href = 'profile.html';
+});
+
+myProfileTrigger.addEventListener('click', () => {
+  window.location.href = 'profile.html';
+});
+
+myAvatarEl.addEventListener('click', (event) => {
+  event.stopPropagation();
+  openAvatarViewer(currentUserAvatarUrl, `${myDisplayNameEl.textContent || 'My'} photo`);
+});
+
+myProfileTrigger.addEventListener('keydown', (event) => {
+  if (event.key === 'Enter' || event.key === ' ') {
+    event.preventDefault();
+    window.location.href = 'profile.html';
+  }
+});
+
+chatProfileTrigger.addEventListener('click', () => {
+  window.location.href = 'profile.html';
+});
+
+chatAvatar.addEventListener('click', (event) => {
+  event.stopPropagation();
+  if (!currentConversation || currentConversation.type === 'GROUP') {
+    return;
+  }
+  openAvatarViewer(activeChatAvatarUrl, `${chatPartnerName.textContent || 'Contact'} photo`);
+});
+
+chatProfileTrigger.addEventListener('keydown', (event) => {
+  if (event.key === 'Enter' || event.key === ' ') {
+    event.preventDefault();
+    window.location.href = 'profile.html';
+  }
+});
+
+adminBtn.addEventListener('click', () => {
+  window.location.href = 'admin.html';
+});
+
+document.getElementById('empty-start-chat').addEventListener('click', () => {
+  newChatModal.classList.add('open');
+  userSearchResults.innerHTML = '';
+  userSearchInput.value = '';
+  userSearchInput.focus();
+});
+
+const mobileMenuBtn = document.getElementById('mobile-menu-btn');
+if (mobileMenuBtn) {
+  mobileMenuBtn.addEventListener('click', () => {
+    setMobileView('list');
+  });
+}
+
+if (mobileBackBtn) {
+  mobileBackBtn.addEventListener('click', () => {
+    setMobileView('list');
+  });
+}
+
+msgDeleteMeBtn.addEventListener('click', async () => {
+  if (longPressMessageId) {
+    await deleteMessage(longPressMessageId, 'me');
+  }
+  closeMessageActionSheet();
+});
+
+msgDeleteAllBtn.addEventListener('click', async () => {
+  if (longPressMessageId) {
+    await deleteMessage(longPressMessageId, 'everyone');
+  }
+  closeMessageActionSheet();
+});
+
+msgReplyBtn.addEventListener('click', () => {
+  if (longPressMessageId) {
+    setReplyTarget(messageSnapshot.get(longPressMessageId));
+  }
+  closeMessageActionSheet();
+});
+
+msgInfoBtn.addEventListener('click', () => {
+  if (longPressMessageId) {
+    openMessageInfo(longPressMessageId);
+  }
+  closeMessageActionSheet();
+});
+
+ctxReplyBtn.addEventListener('click', () => {
+  if (desktopContextMessageId) {
+    setReplyTarget(messageSnapshot.get(desktopContextMessageId));
+  }
+  closeDesktopContextMenu();
+});
+
+ctxInfoBtn.addEventListener('click', () => {
+  if (desktopContextMessageId) {
+    openMessageInfo(desktopContextMessageId);
+  }
+  closeDesktopContextMenu();
+});
+
+ctxDeleteMeBtn.addEventListener('click', async () => {
+  if (desktopContextMessageId) {
+    await deleteMessage(desktopContextMessageId, 'me');
+  }
+  closeDesktopContextMenu();
+});
+
+ctxDeleteAllBtn.addEventListener('click', async () => {
+  if (desktopContextMessageId) {
+    await deleteMessage(desktopContextMessageId, 'everyone');
+  }
+  closeDesktopContextMenu();
+});
+
+msgSheetCancelBtn.addEventListener('click', closeMessageActionSheet);
+scrim.addEventListener('click', closeMessageActionSheet);
+messageInfoClose.addEventListener('click', closeMessageInfo);
+replyCancelBtn.addEventListener('click', clearReplyTarget);
+
+scrim.addEventListener('click', () => toggleSidebar(false));
+
+if (avatarViewerBack) {
+  avatarViewerBack.addEventListener('click', closeAvatarViewer);
+}
+
+if (avatarViewerDownload) {
+  avatarViewerDownload.addEventListener('click', downloadViewerImage);
+}
+
+if (avatarViewer) {
+  avatarViewer.addEventListener('click', (event) => {
+    if (event.target === avatarViewer) {
+      closeAvatarViewer();
+    }
+  });
+}
+
+if (messageInfoModal) {
+  messageInfoModal.addEventListener('click', (event) => {
+    if (event.target === messageInfoModal) {
+      closeMessageInfo();
+    }
+  });
+}
+
+messagesContainer.addEventListener('click', (event) => {
+  const link = event.target.closest('.message-image-link');
+  if (!link) {
+    return;
+  }
+  event.preventDefault();
+  const imageUrl = link.getAttribute('data-image-url') || link.getAttribute('href');
+  openAvatarViewer(imageUrl, 'Image');
+});
+
+messagesContainer.addEventListener('wheel', (event) => {
+  if (isTouchLayout()) {
+    return;
+  }
+  if (Math.abs(event.deltaX) < 1 || Math.abs(event.deltaX) < Math.abs(event.deltaY)) {
+    return;
+  }
+  const bubble = event.target.closest('.message-bubble');
+  if (!bubble) {
+    return;
+  }
+  const messageId = bubble.dataset.messageId;
+  if (!messageId) {
+    return;
+  }
+  if (wheelReplyMessageId && wheelReplyMessageId !== messageId) {
+    wheelReplyAccumulator = 0;
+  }
+  wheelReplyMessageId = messageId;
+  wheelReplyAccumulator += event.deltaX;
+  if (wheelReplyTimer) {
+    clearTimeout(wheelReplyTimer);
+  }
+  wheelReplyTimer = setTimeout(() => {
+    wheelReplyAccumulator = 0;
+    wheelReplyMessageId = null;
+  }, 220);
+  if (Math.abs(wheelReplyAccumulator) > 44) {
+    wheelReplyAccumulator = 0;
+    wheelReplyMessageId = null;
+    const message = messageSnapshot.get(messageId);
+    if (message) {
+      setReplyTarget(message);
+      showToast('Reply attached');
+    }
+  }
+}, { passive: true });
+
+searchInput.addEventListener('input', refreshFilteredList);
+
+userSearchInput.addEventListener('input', () => {
+  clearTimeout(searchTimer);
+  const query = userSearchInput.value.trim();
+  if (!query) {
+    userSearchResults.innerHTML = '';
+    return;
+  }
+  searchTimer = setTimeout(() => searchUsers(query), 260);
+});
+
+sendBtn.addEventListener('click', sendMessage);
+if (attachImageBtn && imageInput) {
+  attachImageBtn.addEventListener('click', () => {
+    if (!currentConversation) {
+      showToast('Pick a conversation first');
+      return;
+    }
+    imageInput.click();
+  });
+
+  imageInput.addEventListener('change', async () => {
+    const file = imageInput.files && imageInput.files[0];
+    if (file) {
+      await sendImageMessage(file);
+    }
+    imageInput.value = '';
+  });
+}
+
+messageInput.addEventListener('input', autoResize);
+messageInput.addEventListener('keydown', (event) => {
+  if (event.key === 'Enter' && !event.shiftKey) {
+    event.preventDefault();
+    sendMessage();
+  }
+});
+
+document.getElementById('btn-audio-call').addEventListener('click', () => {
+  if (!window.webRTC) return;
+  window.webRTC.initiateCall(false);
+});
+
+document.getElementById('btn-video-call').addEventListener('click', () => {
+  if (!window.webRTC) return;
+  window.webRTC.initiateCall(true);
+});
+
+document.getElementById('logout-btn').addEventListener('click', () => {
+  if (stompClient) {
+    stompClient.deactivate();
+  }
+  localStorage.removeItem('nextalk_token');
+  localStorage.removeItem('nextalk_user_id');
+  localStorage.removeItem('nextalk_username');
+  localStorage.removeItem('nextalk_display');
+  window.location.replace('index.html');
+});
+
+async function init() {
+  applyTheme(localStorage.getItem(THEME_KEY) || 'dark');
+  clearReplyTarget();
+  syncNotificationControls();
+  updateNotifyButton();
+  myDisplayNameEl.textContent = DISPLAY_NAME || CURRENT_USER;
+  setAvatarVisual(myAvatarEl, DISPLAY_NAME || CURRENT_USER, '');
+  await loadCurrentUserProfile();
+  if (CURRENT_USER && CURRENT_USER.toLowerCase() === 'durgesh') {
+    adminBtn.style.display = 'inline-flex';
+  }
+  setCallButtonsEnabled(false);
+  applySidebarModeFromStorage();
+  if (!USER_ID) {
+    showToast('Session metadata missing; re-login recommended');
+  }
+  if (isMobileScreen()) {
+    setMobileView('list');
+  }
+  await loadConversations(false);
+  connectWebSocket();
+  if (!refreshIntervalId) {
+    refreshIntervalId = setInterval(() => loadConversations(true), 15000);
+  }
+}
+
+window.addEventListener('resize', () => {
+  if (isMobileScreen()) {
+    appShell.classList.remove('sidebar-collapsed');
+    if (currentConversation) {
+      setMobileView('chat');
+    } else {
+      setMobileView('list');
+    }
+  } else {
+    toggleSidebar(false);
+    appShell.classList.remove('mobile-list-mode', 'mobile-chat-mode');
+    applySidebarModeFromStorage();
+  }
+});
+
+document.addEventListener('click', (event) => {
+  if (msgContextMenu.classList.contains('open') && !msgContextMenu.contains(event.target)) {
+    closeDesktopContextMenu();
+  }
+  if (!notifSheet.classList.contains('open')) {
+    return;
+  }
+  if (notifSheet.contains(event.target) || notifyBtn.contains(event.target)) {
+    return;
+  }
+  notifSheet.classList.remove('open');
+});
+
+document.addEventListener('keydown', (event) => {
+  if (event.key === 'Escape' && avatarViewer?.classList.contains('open')) {
+    closeAvatarViewer();
+    return;
+  }
+  if (event.key === 'Escape' && messageInfoModal.classList.contains('open')) {
+    closeMessageInfo();
+  }
+});
+
+document.addEventListener('visibilitychange', () => {
+  if (!document.hidden) {
+    markConversationRead();
+  }
+});
+
+window.addEventListener('focus', () => {
+  markConversationRead();
+});
+
+init();

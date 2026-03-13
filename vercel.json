@@ -1,0 +1,12 @@
+{
+  "version": 2,
+  "rewrites": [
+    { "source": "/", "destination": "/frontend/index.html" },
+    { "source": "/index.html", "destination": "/frontend/index.html" },
+    { "source": "/chat.html", "destination": "/frontend/chat.html" },
+    { "source": "/profile.html", "destination": "/frontend/profile.html" },
+    { "source": "/admin.html", "destination": "/frontend/admin.html" },
+    { "source": "/css/(.*)", "destination": "/frontend/css/$1" },
+    { "source": "/js/(.*)", "destination": "/frontend/js/$1" }
+  ]
+}

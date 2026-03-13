@@ -1,0 +1,16 @@
+# Local environment secrets
+.env
+.env.*
+!.env.example
+backend/.env.local
+
+# Java build output
+backend/target/
+
+# Local runtime data and logs
+.logs/
+.mongodb-data/
+
+# OS/editor files
+.DS_Store
+.vscode/

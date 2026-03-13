@@ -1,0 +1,149 @@
+@import url('https://fonts.googleapis.com/css2?family=Sora:wght@400;500;600;700&display=swap');
+
+:root {
+  --bg: #06131c;
+  --panel: #0f2330;
+  --line: #2b4e63;
+  --text: #ebf6fb;
+  --muted: #94adbc;
+  --brand: #1fb5cf;
+  --warn: #dca12d;
+  --danger: #d95353;
+}
+
+body[data-theme='light'] {
+  --bg: #edf5fb;
+  --panel: #f8fcff;
+  --line: #c2d8e7;
+  --text: #103043;
+  --muted: #547486;
+  --brand: #167f97;
+}
+
+* { box-sizing: border-box; }
+body {
+  margin: 0;
+  min-height: 100vh;
+  font-family: 'Sora', sans-serif;
+  color: var(--text);
+  background: var(--bg);
+}
+
+.admin-shell { width: min(920px, 94vw); margin: 24px auto; display: grid; gap: 14px; }
+.topbar { display: flex; justify-content: space-between; align-items: center; }
+.actions { display: flex; gap: 8px; }
+
+.card {
+  border: 1px solid var(--line);
+  border-radius: 16px;
+  background: var(--panel);
+  padding: 18px;
+  display: grid;
+  gap: 12px;
+}
+
+.table-wrap {
+  overflow: auto;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+}
+
+.users-table {
+  width: 100%;
+  border-collapse: collapse;
+  min-width: 760px;
+}
+
+.users-table th,
+.users-table td {
+  border-bottom: 1px solid var(--line);
+  padding: 10px;
+  text-align: left;
+  font-size: 0.82rem;
+}
+
+.users-table th {
+  color: var(--muted);
+  font-size: 0.74rem;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+}
+
+.users-table tr:last-child td {
+  border-bottom: 0;
+}
+
+.user-meta {
+  display: grid;
+  gap: 2px;
+}
+
+.user-meta strong {
+  font-size: 0.84rem;
+}
+
+.user-meta span {
+  color: var(--muted);
+  font-size: 0.72rem;
+}
+
+.muted {
+  color: var(--muted);
+  font-size: 0.72rem;
+}
+
+.status-pill {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  padding: 4px 8px;
+  font-size: 0.69rem;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+}
+
+.row-actions {
+  display: flex;
+  gap: 6px;
+}
+
+.row-actions button {
+  height: 32px;
+  font-size: 0.72rem;
+  padding: 0 10px;
+}
+
+.row-actions .danger {
+  border-color: #a53939;
+  color: #ffc8c8;
+}
+
+.row-actions .warn {
+  border-color: #9a7625;
+  color: #ffd999;
+}
+
+button {
+  border: 1px solid var(--line);
+  background: #102432;
+  color: var(--text);
+  border-radius: 10px;
+  height: 36px;
+  padding: 0 12px;
+  font: inherit;
+  cursor: pointer;
+}
+
+body[data-theme='light'] button { background: #fafdff; }
+
+.btn-row { display: flex; gap: 8px; flex-wrap: wrap; }
+.warn { border-color: #9a7625; color: #ffd999; }
+.danger { border-color: #a53939; color: #ffc8c8; }
+
+#status-msg { min-height: 18px; color: var(--muted); font-size: 0.84rem; }
+
+@media (max-width: 640px) {
+  .topbar { flex-direction: column; align-items: flex-start; gap: 10px; }
+}
