@@ -299,6 +299,35 @@ To reset backend origin mapping in browser:
 localStorage.removeItem('nextalk_backend_origin')
 ```
 
+### Deploy Backend On Hugging Face (Docker Space)
+
+The frontend is static and can stay on Vercel. Deploy the Java backend separately as a Docker Space.
+
+1. Create a new Hugging Face Space with SDK set to `Docker`.
+2. Use the backend folder files (`backend/pom.xml`, `backend/src`, `backend/public`, `backend/Dockerfile`).
+3. The backend listens on Space port `7860` via `PORT` env var.
+
+Required Hugging Face Space secrets:
+
+- `MONGODB_URI` = your MongoDB Atlas URI
+- `NEXTALK_JWT_SECRET` = strong random secret (base64/plain string)
+- `NEXTALK_JWT_EXPIRATION` = token lifetime in ms (optional, default `86400000`)
+
+After backend is live, expected URL format:
+
+`https://<hf-username>-<space-name>.hf.space`
+
+This project is preconfigured with default production backend origin:
+
+`https://durgesh-kushwaha-nextalk.hf.space`
+
+If you change your Space URL, override at runtime:
+
+```js
+localStorage.setItem('nextalk_backend_origin', 'https://YOUR-SPACE.hf.space')
+location.reload()
+```
+
 ## Install As Mobile/Desktop App (No Flutter)
 
 The frontend now supports PWA install.

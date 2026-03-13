@@ -2,6 +2,8 @@ function trimTrailingSlash(value) {
   return (value || '').replace(/\/+$/, '');
 }
 
+const DEFAULT_PROD_BACKEND_ORIGIN = 'https://durgesh-kushwaha-nextalk.hf.space';
+
 function sanitizeBackendOrigin(value) {
   const candidate = trimTrailingSlash((value || '').trim());
   if (!candidate) {
@@ -43,6 +45,12 @@ function resolveConfiguredBackendOrigin() {
     }
   } catch (error) {
     return '';
+  }
+
+  const host = window.location.hostname || '';
+  const isLocalHost = host === 'localhost' || host === '127.0.0.1';
+  if (!isLocalHost) {
+    return DEFAULT_PROD_BACKEND_ORIGIN;
   }
 
   return '';
