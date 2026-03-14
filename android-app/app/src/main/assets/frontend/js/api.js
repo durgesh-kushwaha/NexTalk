@@ -188,21 +188,62 @@ async function apiFetch(endpoint, options = {}) {
     });
   };
 
+  const parseResponse = async function (response) {
+    const text = await response.text();
+    let data = {};
+    if (text) {
+      try {
+        data = JSON.parse(text);
+      } catch (error) {
+        data = { message: text };
+      }
+    }
+    return data;
+  };
+
+  const getAutoFallbackBase = function () {
+    if (API_BASE !== '/api') {
+      return '';
+    }
+    return `${DEFAULT_PROD_BACKEND_ORIGIN}/api`;
+  };
+
   const isFormData = typeof FormData !== 'undefined' && options.body instanceof FormData;
   let response;
+  let activeBase = API_BASE;
   try {
-    response = await executeFetch(API_BASE);
+    response = await executeFetch(activeBase);
   } catch (error) {
-    throw new Error('Cannot reach NexTalk API. Open app with ?backend=https://YOUR-BACKEND-DOMAIN once, then retry.');
+    const fallbackBase = getAutoFallbackBase();
+    if (!fallbackBase || fallbackBase === activeBase) {
+      throw new Error('Cannot reach NexTalk API. Open app with ?backend=https://YOUR-BACKEND-DOMAIN once, then retry.');
+    }
+    activeBase = fallbackBase;
+    response = await executeFetch(activeBase);
+    try {
+      localStorage.setItem('nextalk_backend_origin', DEFAULT_PROD_BACKEND_ORIGIN);
+    } catch (storageError) {
+    }
   }
 
-  const text = await response.text();
-  let data = {};
-  if (text) {
-    try {
-      data = JSON.parse(text);
-    } catch (error) {
-      data = { message: text };
+  let data = await parseResponse(response);
+
+  if (!response.ok && API_BASE === '/api') {
+    const message = data.message || response.statusText || '';
+    const isGatewayOrNotFound = response.status >= 500 || response.status === 404 || /NOT_FOUND/i.test(message);
+    if (isGatewayOrNotFound) {
+      const fallbackBase = getAutoFallbackBase();
+      if (fallbackBase && fallbackBase !== activeBase) {
+        const retryResponse = await executeFetch(fallbackBase);
+        const retryData = await parseResponse(retryResponse);
+        if (retryResponse.ok) {
+          try {
+            localStorage.setItem('nextalk_backend_origin', DEFAULT_PROD_BACKEND_ORIGIN);
+          } catch (storageError) {
+          }
+          return retryData;
+        }
+      }
     }
   }
 
@@ -211,26 +252,7 @@ async function apiFetch(endpoint, options = {}) {
 
     // Vercel returns NOT_FOUND when /api is not mapped to backend.
     if (response.status === 404 && /NOT_FOUND/i.test(message) && API_BASE === '/api') {
-      const selectedOrigin = promptForBackendOrigin();
-      if (selectedOrigin) {
-        const retryBase = `${selectedOrigin}/api`;
-        const retryResponse = await executeFetch(retryBase);
-        const retryText = await retryResponse.text();
-        let retryData = {};
-        if (retryText) {
-          try {
-            retryData = JSON.parse(retryText);
-          } catch (error) {
-            retryData = { message: retryText };
-          }
-        }
-        if (!retryResponse.ok) {
-          throw new Error(retryData.message || retryResponse.statusText);
-        }
-        window.location.reload();
-        return retryData;
-      }
-      throw new Error('Backend URL is not configured. Open app with ?backend=https://YOUR-BACKEND-DOMAIN');
+      throw new Error('Backend is temporarily unavailable. Please retry in a few seconds.');
     }
 
     const isAuthEndpoint = endpoint.startsWith('/auth/');
