@@ -102,6 +102,21 @@ class MainActivity : AppCompatActivity() {
         }
 
         @JavascriptInterface
+        fun requestNotificationPermission() {
+            runOnUiThread {
+                if (hasNotificationPermission()) {
+                    emitNativeNotificationPermissionResult(true)
+                    return@runOnUiThread
+                }
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+                    notificationPermissionLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
+                } else {
+                    emitNativeNotificationPermissionResult(true)
+                }
+            }
+        }
+
+        @JavascriptInterface
         fun getAudioOutputDevices(): String {
             return runCatching { buildAudioOutputDevicesJson() }.getOrDefault("[]")
         }
@@ -243,6 +258,11 @@ class MainActivity : AppCompatActivity() {
                 pendingWebPermissionRequest?.deny()
             }
             pendingWebPermissionRequest = null
+        }
+
+    private val notificationPermissionLauncher =
+        registerForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
+            emitNativeNotificationPermissionResult(granted)
         }
 
     private val filePickerLauncher =
@@ -676,6 +696,16 @@ class MainActivity : AppCompatActivity() {
             put("status", statusCode)
         }.toString()
         val js = "window.onNativeFcmRegisterResult && window.onNativeFcmRegisterResult(${JSONObject.quote(payload)});"
+        webView.post {
+            webView.evaluateJavascript(js, null)
+        }
+    }
+
+    private fun emitNativeNotificationPermissionResult(granted: Boolean) {
+        val payload = JSONObject().apply {
+            put("granted", granted)
+        }.toString()
+        val js = "window.onNativeNotificationPermissionResult && window.onNativeNotificationPermissionResult(${JSONObject.quote(payload)});"
         webView.post {
             webView.evaluateJavascript(js, null)
         }

@@ -149,6 +149,7 @@ let nativePushRegistered = false;
 let nativePushRetryTimer = null;
 let nativePushLastAttemptAt = 0;
 let nativePushAttemptCount = 0;
+let pendingNativeNotificationPermissionResolve = null;
 
 function isTouchLayout() {
   return window.matchMedia('(hover: none), (pointer: coarse)').matches;
@@ -214,6 +215,23 @@ function handleNativeContactPicked(rawPayload) {
 }
 
 window.onNativeContactPicked = handleNativeContactPicked;
+
+function handleNativeNotificationPermissionResult(rawPayload) {
+  let payload = { granted: false };
+  try {
+    payload = JSON.parse(rawPayload || '{}');
+  } catch (error) {
+    payload = { granted: false };
+  }
+  const granted = !!payload.granted;
+  if (pendingNativeNotificationPermissionResolve) {
+    const resolve = pendingNativeNotificationPermissionResolve;
+    pendingNativeNotificationPermissionResolve = null;
+    resolve(granted);
+  }
+}
+
+window.onNativeNotificationPermissionResult = handleNativeNotificationPermissionResult;
 
 function requestNativeContactPick() {
   return new Promise((resolve) => {
@@ -393,7 +411,29 @@ function syncNotificationControls() {
 
 async function requestNotificationPermission() {
   if (hasAndroidBridge()) {
-    return isAndroidNotificationsGranted();
+    if (isAndroidNotificationsGranted()) {
+      return true;
+    }
+    if (typeof window.AndroidBridge.requestNotificationPermission !== 'function') {
+      return false;
+    }
+    return await new Promise((resolve) => {
+      pendingNativeNotificationPermissionResolve = resolve;
+      try {
+        window.AndroidBridge.requestNotificationPermission();
+      } catch (error) {
+        pendingNativeNotificationPermissionResolve = null;
+        resolve(false);
+      }
+      setTimeout(() => {
+        if (!pendingNativeNotificationPermissionResolve) {
+          return;
+        }
+        const callback = pendingNativeNotificationPermissionResolve;
+        pendingNativeNotificationPermissionResolve = null;
+        callback(isAndroidNotificationsGranted());
+      }, 4500);
+    });
   }
   if (!('Notification' in window)) {
     return false;
@@ -480,6 +520,9 @@ function notifyIncomingMessage(conversation, message) {
   recentNotificationMap.set(key, { signature, at: now });
 
   showDesktopNotification(title, content, `msg-${conversation.id}`, 'message');
+  if (hasAndroidBridge() && !isAndroidNotificationsGranted()) {
+    showToast(`${title}: ${content}`);
+  }
   if (messageSoundEnabled && !hasAndroidBridge()) {
     playNotificationTone('message');
   }
@@ -487,6 +530,10 @@ function notifyIncomingMessage(conversation, message) {
 
 function notifyIncomingCall(fromUsername, isVideo) {
   if (hasAndroidBridge()) {
+    if (!isAndroidNotificationsGranted() && callSoundEnabled) {
+      showToast(`${fromUsername || 'Incoming call'} (${isVideo ? 'video' : 'audio'})`);
+      playNotificationTone('call');
+    }
     return;
   }
   const key = `call:${String(fromUsername || 'incoming').toLowerCase()}`;
@@ -2330,6 +2377,9 @@ async function init() {
     localStorage.setItem(NOTIF_DESKTOP_KEY, '1');
     localStorage.setItem(NOTIF_MESSAGE_SOUND_KEY, '1');
     localStorage.setItem(NOTIF_CALL_SOUND_KEY, '1');
+    if (!isAndroidNotificationsGranted()) {
+      await requestNotificationPermission();
+    }
   }
   applyTheme(localStorage.getItem(THEME_KEY) || 'dark');
   registerNativePushToken();
