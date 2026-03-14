@@ -43,8 +43,8 @@ import java.util.concurrent.Executors
 class MainActivity : AppCompatActivity() {
 
     companion object {
-        private const val CHANNEL_MESSAGES = "nextalk_messages"
-        private const val CHANNEL_CALLS = "nextalk_calls"
+        private const val CHANNEL_MESSAGES = "nextalk_messages_v2"
+        private const val CHANNEL_CALLS = "nextalk_calls_v2"
         private const val PREFS_NAME = "nextalk_push_prefs"
         private const val PREF_AUTH_TOKEN = "auth_token"
         private const val PREF_BACKEND_ORIGIN = "backend_origin"

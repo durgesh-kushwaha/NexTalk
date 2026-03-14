@@ -49,6 +49,8 @@ class WebRTCManager {
     this.audioOutputWrap = document.getElementById('audio-output-wrap');
     this.audioOutputSelect = document.getElementById('audio-output-select');
     this.requestTimeoutId = null;
+    this.callRequestRetryTimer = null;
+    this.callRequestRetried = false;
     this.remoteAudio = new Audio();
     this.remoteAudio.autoplay = true;
     this.remoteAudio.playsInline = true;
@@ -500,6 +502,22 @@ class WebRTCManager {
       this.flash('No response from user');
       this.cleanup();
     }, 25000);
+
+    if (this.callRequestRetryTimer) {
+      clearTimeout(this.callRequestRetryTimer);
+    }
+    this.callRequestRetried = false;
+    this.callRequestRetryTimer = setTimeout(() => {
+      if (!this.callInProgress || this.callRequestRetried || !this.callPartner) {
+        return;
+      }
+      this.callRequestRetried = true;
+      window.sendSignal({
+        type: 'CALL_REQUEST',
+        toUsername: this.callPartner,
+        videoEnabled: this.isVideoCall,
+      });
+    }, 6000);
   }
 
   async acceptCall() {
@@ -615,6 +633,10 @@ class WebRTCManager {
         break;
       case 'CALL_ACCEPTED':
         this.incomingRingLocked = true;
+        if (this.callRequestRetryTimer) {
+          clearTimeout(this.callRequestRetryTimer);
+          this.callRequestRetryTimer = null;
+        }
         if (this.requestTimeoutId) {
           clearTimeout(this.requestTimeoutId);
           this.requestTimeoutId = null;
@@ -623,6 +645,10 @@ class WebRTCManager {
         break;
       case 'CALL_REJECTED':
         this.incomingRingLocked = true;
+        if (this.callRequestRetryTimer) {
+          clearTimeout(this.callRequestRetryTimer);
+          this.callRequestRetryTimer = null;
+        }
         this.flash(`${signal.fromUsername || 'User'} declined your call`);
         this.cleanup();
         break;
@@ -637,6 +663,10 @@ class WebRTCManager {
         break;
       case 'CALL_ENDED':
         this.incomingRingLocked = true;
+        if (this.callRequestRetryTimer) {
+          clearTimeout(this.callRequestRetryTimer);
+          this.callRequestRetryTimer = null;
+        }
         this.flash('Call ended');
         this.cleanup();
         break;
@@ -970,6 +1000,11 @@ class WebRTCManager {
       clearTimeout(this.requestTimeoutId);
       this.requestTimeoutId = null;
     }
+    if (this.callRequestRetryTimer) {
+      clearTimeout(this.callRequestRetryTimer);
+      this.callRequestRetryTimer = null;
+    }
+    this.callRequestRetried = false;
     if (this.timerId) {
       clearInterval(this.timerId);
       this.timerId = null;

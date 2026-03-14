@@ -1405,17 +1405,16 @@ async function runNativeFcmDiagnostics() {
   try {
     const debug = await api.get('/devices/fcm-debug');
     if (!debug?.fcmReady) {
-      showToast('Push backend is not ready');
+      registerNativePushToken(true);
       return;
     }
     const count = Number(debug?.tokenCount || 0);
     if (count < 1) {
       registerNativePushToken(true);
-      showToast('Re-registering push token...');
       return;
     }
   } catch (error) {
-    showToast('Could not verify push diagnostics');
+    registerNativePushToken(true);
   }
 }
 

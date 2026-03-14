@@ -19,8 +19,8 @@ import org.json.JSONObject
 class NextalkFirebaseMessagingService : FirebaseMessagingService() {
 
     companion object {
-        private const val CHANNEL_MESSAGES = "nextalk_messages"
-        private const val CHANNEL_CALLS = "nextalk_calls"
+        private const val CHANNEL_MESSAGES = "nextalk_messages_v2"
+        private const val CHANNEL_CALLS = "nextalk_calls_v2"
     }
 
     override fun onMessageReceived(message: RemoteMessage) {

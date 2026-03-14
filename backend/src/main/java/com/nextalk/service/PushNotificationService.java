@@ -236,7 +236,7 @@ public class PushNotificationService {
                 .setPriority(AndroidConfig.Priority.HIGH)
                 .setNotification(
                     AndroidNotification.builder()
-                        .setChannelId("call".equals(data == null ? "" : data.get("type")) ? "nextalk_calls" : "nextalk_messages")
+                        .setChannelId("call".equals(data == null ? "" : data.get("type")) ? "nextalk_calls_v2" : "nextalk_messages_v2")
                         .setSound("default")
                         .build()
                 )
