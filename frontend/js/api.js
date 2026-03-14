@@ -56,6 +56,11 @@ function resolveConfiguredBackendOrigin() {
     return DEFAULT_PROD_BACKEND_ORIGIN;
   }
 
+  // Hosted frontend domain uses Hugging Face backend by default.
+  if (host.endsWith('durgesh.me')) {
+    return DEFAULT_PROD_BACKEND_ORIGIN;
+  }
+
   return '';
 }
 
