@@ -43,6 +43,7 @@ const TYPING_IDLE_TIMEOUT_MS = 1400;
 const TYPING_STATUS_TIMEOUT_MS = 1800;
 
 const recentNotificationMap = new Map();
+const recentSignalMap = new Map();
 
 let chatStatusBaseText = 'offline';
 let typingStatusTimer = null;
@@ -51,6 +52,30 @@ let isTypingBroadcasted = false;
 let hasLoadedOfflineBootstrap = false;
 
 const offlineStore = window.nextalkOfflineStore || null;
+
+function shouldProcessSignal(signal) {
+  const key = [
+    signal?.type || '',
+    signal?.fromUsername || '',
+    signal?.toUsername || '',
+    signal?.data || '',
+    signal?.videoEnabled ? '1' : '0',
+  ].join('|');
+  const now = Date.now();
+  const seen = recentSignalMap.get(key) || 0;
+  if (now - seen < 1200) {
+    return false;
+  }
+  recentSignalMap.set(key, now);
+  if (recentSignalMap.size > 120) {
+    for (const [entryKey, ts] of recentSignalMap.entries()) {
+      if (now - ts > 5000) {
+        recentSignalMap.delete(entryKey);
+      }
+    }
+  }
+  return true;
+}
 
 const sidebar = document.getElementById('sidebar');
 const appShell = document.querySelector('.app-shell');
@@ -70,6 +95,8 @@ const chatStatus = document.getElementById('chat-status');
 const messagesContainer = document.getElementById('messages-container');
 const messageInput = document.getElementById('message-input');
 const sendBtn = document.getElementById('send-btn');
+const attachMenuBtn = document.getElementById('attach-menu-btn');
+const attachMenu = document.getElementById('attach-menu');
 const attachImageBtn = document.getElementById('attach-image-btn');
 const attachVideoBtn = document.getElementById('attach-video-btn');
 const attachContactBtn = document.getElementById('attach-contact-btn');
@@ -116,6 +143,7 @@ const avatarViewerImage = document.getElementById('avatar-viewer-image');
 const avatarViewerTitle = document.getElementById('avatar-viewer-title');
 const avatarViewerDownload = document.getElementById('avatar-viewer-download');
 let viewerDownloadUrl = '';
+let pendingNativeContactResolve = null;
 
 function isTouchLayout() {
   return window.matchMedia('(hover: none), (pointer: coarse)').matches;
@@ -143,6 +171,67 @@ function isAway() {
 
 function hasAndroidBridge() {
   return typeof window.AndroidBridge !== 'undefined';
+}
+
+function closeAttachMenu() {
+  if (attachMenu) {
+    attachMenu.hidden = true;
+  }
+}
+
+function toggleAttachMenu(forceOpen) {
+  if (!attachMenu) {
+    return;
+  }
+  if (typeof forceOpen === 'boolean') {
+    attachMenu.hidden = !forceOpen;
+    return;
+  }
+  attachMenu.hidden = !attachMenu.hidden;
+}
+
+function handleNativeContactPicked(rawPayload) {
+  if (!pendingNativeContactResolve) {
+    return;
+  }
+  let payload = { name: '', phone: '' };
+  try {
+    payload = JSON.parse(rawPayload || '{}');
+  } catch (error) {
+    payload = { name: '', phone: '' };
+  }
+  const resolver = pendingNativeContactResolve;
+  pendingNativeContactResolve = null;
+  resolver({
+    name: String(payload.name || '').trim(),
+    phone: String(payload.phone || '').trim(),
+  });
+}
+
+window.onNativeContactPicked = handleNativeContactPicked;
+
+function requestNativeContactPick() {
+  return new Promise((resolve) => {
+    if (!hasAndroidBridge() || typeof window.AndroidBridge.pickContact !== 'function') {
+      resolve({ name: '', phone: '' });
+      return;
+    }
+    pendingNativeContactResolve = resolve;
+    try {
+      window.AndroidBridge.pickContact();
+    } catch (error) {
+      pendingNativeContactResolve = null;
+      resolve({ name: '', phone: '' });
+    }
+    setTimeout(() => {
+      if (!pendingNativeContactResolve) {
+        return;
+      }
+      const resolver = pendingNativeContactResolve;
+      pendingNativeContactResolve = null;
+      resolver({ name: '', phone: '' });
+    }, 12000);
+  });
 }
 
 function registerNativePushToken() {
@@ -1559,11 +1648,22 @@ async function sendLocalContactMessage() {
     return;
   }
 
-  const contactName = (window.prompt('Contact name', '') || '').trim();
-  if (!contactName) {
-    return;
+  let contactName = '';
+  let contactPhone = '';
+
+  if (hasAndroidBridge()) {
+    const picked = await requestNativeContactPick();
+    contactName = picked.name;
+    contactPhone = picked.phone;
   }
-  const contactPhone = (window.prompt('Contact phone number', '') || '').trim();
+
+  if (!contactName) {
+    contactName = (window.prompt('Contact name', '') || '').trim();
+  }
+  if (!contactPhone) {
+    contactPhone = (window.prompt('Contact phone number', '') || '').trim();
+  }
+
   if (!contactPhone) {
     showToast('Phone number is required');
     return;
@@ -1622,9 +1722,17 @@ function onConnected() {
   setStatus('Connected', true);
   updateCallButtonsState();
   const handleSignalFrame = (frame) => {
-    const signal = JSON.parse(frame.body);
-    const target = (signal.toUsername || '').toLowerCase();
-    if (target && target !== CURRENT_USER.toLowerCase()) {
+    let signal = null;
+    try {
+      signal = JSON.parse(frame.body);
+    } catch (error) {
+      return;
+    }
+    if (!signal || !shouldProcessSignal(signal)) {
+      return;
+    }
+    const target = String(signal.toUsername || '').toLowerCase();
+    if (target && target !== String(CURRENT_USER || '').toLowerCase()) {
       return;
     }
     if (window.webRTC) {
@@ -1643,6 +1751,7 @@ function onConnected() {
     }
   };
   stompClient.subscribe('/user/queue/signals', handleSignalFrame);
+  stompClient.subscribe(`/topic/signals/${CURRENT_USER}`, handleSignalFrame);
   if (currentConversation) {
     subscribeConversation(currentConversation.id);
   }
@@ -1982,12 +2091,23 @@ userSearchInput.addEventListener('input', () => {
 });
 
 sendBtn.addEventListener('click', sendMessage);
+if (attachMenuBtn) {
+  attachMenuBtn.addEventListener('click', () => {
+    if (!currentConversation) {
+      showToast('Pick a conversation first');
+      return;
+    }
+    toggleAttachMenu();
+  });
+}
+
 if (attachImageBtn && imageInput) {
   attachImageBtn.addEventListener('click', () => {
     if (!currentConversation) {
       showToast('Pick a conversation first');
       return;
     }
+    closeAttachMenu();
     imageInput.click();
   });
 
@@ -2006,6 +2126,7 @@ if (attachVideoBtn && videoInput) {
       showToast('Pick a conversation first');
       return;
     }
+    closeAttachMenu();
     videoInput.click();
   });
 
@@ -2020,6 +2141,7 @@ if (attachVideoBtn && videoInput) {
 
 if (attachContactBtn) {
   attachContactBtn.addEventListener('click', async () => {
+    closeAttachMenu();
     await sendLocalContactMessage();
   });
 }
@@ -2119,6 +2241,9 @@ window.addEventListener('resize', () => {
 document.addEventListener('click', (event) => {
   if (msgContextMenu.classList.contains('open') && !msgContextMenu.contains(event.target)) {
     closeDesktopContextMenu();
+  }
+  if (attachMenu && !attachMenu.hidden && !attachMenu.contains(event.target) && !(attachMenuBtn && attachMenuBtn.contains(event.target))) {
+    closeAttachMenu();
   }
   if (!notifSheet.classList.contains('open')) {
     return;

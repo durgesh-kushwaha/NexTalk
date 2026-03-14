@@ -28,6 +28,7 @@ import android.webkit.WebResourceRequest
 import android.webkit.WebView
 import android.webkit.WebViewClient
 import com.google.firebase.messaging.FirebaseMessaging
+import android.provider.ContactsContract
 import androidx.activity.OnBackPressedCallback
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.appcompat.app.AppCompatActivity
@@ -126,6 +127,36 @@ class MainActivity : AppCompatActivity() {
                     postFcmTokenToBackend(originValue, tokenValue, fcmToken)
                 }
         }
+
+        @JavascriptInterface
+        fun pickContact() {
+            runOnUiThread {
+                val granted = ContextCompat.checkSelfPermission(
+                    this@MainActivity,
+                    Manifest.permission.READ_CONTACTS
+                ) == PackageManager.PERMISSION_GRANTED
+                if (!granted) {
+                    permissionLauncher.launch(arrayOf(Manifest.permission.READ_CONTACTS))
+                    emitNativeContactPicked(null, null)
+                    return@runOnUiThread
+                }
+                contactPickerLauncher.launch(null)
+            }
+        }
+
+        @JavascriptInterface
+        fun onCallAudioStart() {
+            runOnUiThread {
+                startCallAudioSession()
+            }
+        }
+
+        @JavascriptInterface
+        fun onCallAudioEnd() {
+            runOnUiThread {
+                endCallAudioSession()
+            }
+        }
     }
 
     private val runtimePermissions = buildList {
@@ -136,11 +167,55 @@ class MainActivity : AppCompatActivity() {
         }
     }.toTypedArray()
 
-    private val permissionLauncher =
-        registerForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) {
-            val granted = runtimePermissions.all { permission ->
-                ContextCompat.checkSelfPermission(this, permission) == PackageManager.PERMISSION_GRANTED
+    private val contactPickerLauncher =
+        registerForActivityResult(ActivityResultContracts.PickContact()) { uri ->
+            if (uri == null) {
+                emitNativeContactPicked(null, null)
+                return@registerForActivityResult
             }
+
+            var pickedName: String? = null
+            var pickedPhone: String? = null
+
+            try {
+                contentResolver.query(
+                    uri,
+                    arrayOf(
+                        ContactsContract.Contacts._ID,
+                        ContactsContract.Contacts.DISPLAY_NAME
+                    ),
+                    null,
+                    null,
+                    null
+                )?.use { cursor ->
+                    if (cursor.moveToFirst()) {
+                        val id = cursor.getString(cursor.getColumnIndexOrThrow(ContactsContract.Contacts._ID))
+                        pickedName = cursor.getString(cursor.getColumnIndexOrThrow(ContactsContract.Contacts.DISPLAY_NAME))
+
+                        contentResolver.query(
+                            ContactsContract.CommonDataKinds.Phone.CONTENT_URI,
+                            arrayOf(ContactsContract.CommonDataKinds.Phone.NUMBER),
+                            "${ContactsContract.CommonDataKinds.Phone.CONTACT_ID}=?",
+                            arrayOf(id),
+                            null
+                        )?.use { phoneCursor ->
+                            if (phoneCursor.moveToFirst()) {
+                                pickedPhone = phoneCursor.getString(
+                                    phoneCursor.getColumnIndexOrThrow(ContactsContract.CommonDataKinds.Phone.NUMBER)
+                                )
+                            }
+                        }
+                    }
+                }
+            } catch (_: Exception) {
+            }
+
+            emitNativeContactPicked(pickedName, pickedPhone)
+        }
+
+    private val permissionLauncher =
+        registerForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) { result ->
+            val granted = result.values.all { it }
             if (granted) {
                 pendingWebPermissionRequest?.grant(
                     pendingWebPermissionRequest?.resources ?: emptyArray()
@@ -245,7 +320,17 @@ class MainActivity : AppCompatActivity() {
                     return
                 }
 
-                val hasPermissions = runtimePermissions.all { permission ->
+                val required = mutableListOf<String>()
+                request.resources?.forEach { resource ->
+                    if (resource == PermissionRequest.RESOURCE_AUDIO_CAPTURE) {
+                        required.add(Manifest.permission.RECORD_AUDIO)
+                    }
+                    if (resource == PermissionRequest.RESOURCE_VIDEO_CAPTURE) {
+                        required.add(Manifest.permission.CAMERA)
+                    }
+                }
+
+                val hasPermissions = required.all { permission ->
                     ContextCompat.checkSelfPermission(this@MainActivity, permission) == PackageManager.PERMISSION_GRANTED
                 }
 
@@ -253,7 +338,7 @@ class MainActivity : AppCompatActivity() {
                     request.grant(request.resources)
                 } else {
                     pendingWebPermissionRequest = request
-                    permissionLauncher.launch(runtimePermissions)
+                    permissionLauncher.launch(required.distinct().toTypedArray())
                 }
             }
 
@@ -541,6 +626,36 @@ class MainActivity : AppCompatActivity() {
                 type == AudioDeviceInfo.TYPE_BLE_BROADCAST
         }
         return false
+    }
+
+    private fun emitNativeContactPicked(name: String?, phone: String?) {
+        val payload = JSONObject().apply {
+            put("name", name ?: "")
+            put("phone", phone ?: "")
+        }.toString()
+
+        val js = "window.onNativeContactPicked && window.onNativeContactPicked(${JSONObject.quote(payload)});"
+        webView.post {
+            webView.evaluateJavascript(js, null)
+        }
+    }
+
+    private fun startCallAudioSession() {
+        audioManager.mode = AudioManager.MODE_IN_COMMUNICATION
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.S) {
+            audioManager.isSpeakerphoneOn = false
+        }
+    }
+
+    private fun endCallAudioSession() {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+            audioManager.clearCommunicationDevice()
+        } else {
+            audioManager.stopBluetoothSco()
+            audioManager.isBluetoothScoOn = false
+            audioManager.isSpeakerphoneOn = false
+        }
+        audioManager.mode = AudioManager.MODE_NORMAL
     }
 
     private fun postFcmTokenToBackend(baseOrigin: String, authToken: String, fcmToken: String) {

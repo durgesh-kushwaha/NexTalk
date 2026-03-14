@@ -49,6 +49,7 @@ class WebRTCManager {
     this.remoteAudio = new Audio();
     this.remoteAudio.autoplay = true;
     this.remoteAudio.playsInline = true;
+    this.remoteAudio.muted = false;
     this.remoteVideo.style.transform = 'scaleX(-1)';
     this.remoteVideo.style.webkitTransform = 'scaleX(-1)';
     this.localVideo.addEventListener('click', () => {
@@ -108,6 +109,32 @@ class WebRTCManager {
     }
     try {
       window.AndroidBridge.setVideoCallState(!!active);
+    } catch (error) {
+    }
+  }
+
+  notifyAndroidCallAudioStart() {
+    if (typeof window.AndroidBridge === 'undefined') {
+      return;
+    }
+    if (typeof window.AndroidBridge.onCallAudioStart !== 'function') {
+      return;
+    }
+    try {
+      window.AndroidBridge.onCallAudioStart();
+    } catch (error) {
+    }
+  }
+
+  notifyAndroidCallAudioEnd() {
+    if (typeof window.AndroidBridge === 'undefined') {
+      return;
+    }
+    if (typeof window.AndroidBridge.onCallAudioEnd !== 'function') {
+      return;
+    }
+    try {
+      window.AndroidBridge.onCallAudioEnd();
     } catch (error) {
     }
   }
@@ -775,6 +802,7 @@ class WebRTCManager {
     }
 
     this.localVideo.srcObject = this.localStream;
+    this.notifyAndroidCallAudioStart();
     const videoTrack = this.localStream.getVideoTracks()[0];
     if (videoTrack && this.isMobileDevice()) {
       const detectedFacing = videoTrack.getSettings?.().facingMode;
@@ -948,6 +976,7 @@ class WebRTCManager {
     }
     this.localVideo.classList.remove('expanded');
     this.updateAndroidVideoCallState(false);
+    this.notifyAndroidCallAudioEnd();
     this.applyCallModeClass();
     this.setControlLabel('btn-toggle-mute', 'mic', 'Mute');
     this.updateCallControlsForMode();
