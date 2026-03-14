@@ -124,9 +124,31 @@ function isAway() {
   return document.hidden || !document.hasFocus();
 }
 
+function hasAndroidBridge() {
+  return typeof window.AndroidBridge !== 'undefined';
+}
+
+function isAndroidNotificationsGranted() {
+  if (!hasAndroidBridge()) {
+    return false;
+  }
+  if (typeof window.AndroidBridge.isNotificationPermissionGranted !== 'function') {
+    return true;
+  }
+  try {
+    return !!window.AndroidBridge.isNotificationPermissionGranted();
+  } catch (error) {
+    return false;
+  }
+}
+
 function updateNotifyButton() {
   if (!desktopNotificationsEnabled && !messageSoundEnabled && !callSoundEnabled) {
     notifyBtn.innerHTML = '<span class="material-symbols-rounded">notifications_off</span>';
+    return;
+  }
+  if (desktopNotificationsEnabled && hasAndroidBridge() && isAndroidNotificationsGranted()) {
+    notifyBtn.innerHTML = '<span class="material-symbols-rounded">notifications_active</span>';
     return;
   }
   if (desktopNotificationsEnabled && 'Notification' in window && Notification.permission === 'granted') {
@@ -143,6 +165,9 @@ function syncNotificationControls() {
 }
 
 async function requestNotificationPermission() {
+  if (hasAndroidBridge()) {
+    return isAndroidNotificationsGranted();
+  }
   if (!('Notification' in window)) {
     return false;
   }
@@ -157,6 +182,14 @@ async function requestNotificationPermission() {
 }
 
 function playNotificationTone(kind) {
+  if (hasAndroidBridge() && typeof window.AndroidBridge.playNotificationTone === 'function') {
+    try {
+      window.AndroidBridge.playNotificationTone(kind || 'message');
+      return;
+    } catch (error) {
+    }
+  }
+
   const AudioCtx = window.AudioContext || window.webkitAudioContext;
   if (!AudioCtx) {
     return;
@@ -180,10 +213,19 @@ function playNotificationTone(kind) {
   }, 320);
 }
 
-function showDesktopNotification(title, body, tag) {
+function showDesktopNotification(title, body, tag, kind = 'message') {
   if (!desktopNotificationsEnabled) {
     return;
   }
+
+  if (hasAndroidBridge() && typeof window.AndroidBridge.showNotification === 'function') {
+    try {
+      window.AndroidBridge.showNotification(title || 'NexTalk', body || '', tag || '', kind || 'message');
+      return;
+    } catch (error) {
+    }
+  }
+
   if (!('Notification' in window) || Notification.permission !== 'granted') {
     return;
   }
@@ -200,14 +242,14 @@ function showDesktopNotification(title, body, tag) {
 function notifyIncomingMessage(conversation, message) {
   const title = getConversationName(conversation);
   const content = message || 'New message';
-  showDesktopNotification(title, content, `msg-${conversation.id}`);
+  showDesktopNotification(title, content, `msg-${conversation.id}`, 'message');
   if (messageSoundEnabled) {
     playNotificationTone('message');
   }
 }
 
 function notifyIncomingCall(fromUsername, isVideo) {
-  showDesktopNotification(fromUsername || 'Incoming call', isVideo ? 'Incoming video call' : 'Incoming audio call', `call-${fromUsername || 'incoming'}`);
+  showDesktopNotification(fromUsername || 'Incoming call', isVideo ? 'Incoming video call' : 'Incoming audio call', `call-${fromUsername || 'incoming'}`, 'call');
   if (callSoundEnabled) {
     playNotificationTone('call');
   }

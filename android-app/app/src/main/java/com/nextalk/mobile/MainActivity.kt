@@ -1,10 +1,19 @@
 package com.nextalk.mobile
 
 import android.Manifest
+import android.annotation.SuppressLint
+import android.app.NotificationChannel
+import android.app.NotificationManager
+import android.app.PendingIntent
+import android.content.Intent
+import android.media.AudioAttributes
+import android.media.Ringtone
+import android.media.RingtoneManager
 import android.content.pm.PackageManager
 import android.net.Uri
 import android.os.Build
 import android.os.Bundle
+import android.webkit.JavascriptInterface
 import android.webkit.CookieManager
 import android.webkit.PermissionRequest
 import android.webkit.ValueCallback
@@ -15,13 +24,56 @@ import android.webkit.WebViewClient
 import androidx.activity.OnBackPressedCallback
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.appcompat.app.AppCompatActivity
+import androidx.core.app.NotificationCompat
+import androidx.core.app.NotificationManagerCompat
 import androidx.core.content.ContextCompat
 
 class MainActivity : AppCompatActivity() {
 
+    companion object {
+        private const val CHANNEL_MESSAGES = "nextalk_messages"
+        private const val CHANNEL_CALLS = "nextalk_calls"
+    }
+
     private lateinit var webView: WebView
     private var fileChooserCallback: ValueCallback<Array<Uri>>? = null
     private var pendingWebPermissionRequest: PermissionRequest? = null
+    private var incomingRingtone: Ringtone? = null
+
+    inner class AndroidBridge {
+        @JavascriptInterface
+        fun showNotification(title: String?, body: String?, tag: String?, kind: String?) {
+            runOnUiThread {
+                showNativeNotification(title, body, tag, kind)
+            }
+        }
+
+        @JavascriptInterface
+        fun playNotificationTone(kind: String?) {
+            runOnUiThread {
+                playNativeTone(kind)
+            }
+        }
+
+        @JavascriptInterface
+        fun startIncomingRingtone() {
+            runOnUiThread {
+                startIncomingRingtoneInternal()
+            }
+        }
+
+        @JavascriptInterface
+        fun stopIncomingRingtone() {
+            runOnUiThread {
+                stopIncomingRingtoneInternal()
+            }
+        }
+
+        @JavascriptInterface
+        fun isNotificationPermissionGranted(): Boolean {
+            return hasNotificationPermission()
+        }
+    }
 
     private val runtimePermissions = buildList {
         add(Manifest.permission.CAMERA)
@@ -79,6 +131,8 @@ class MainActivity : AppCompatActivity() {
         super.onCreate(savedInstanceState)
         setContentView(R.layout.activity_main)
 
+        createNotificationChannels()
+
         webView = findViewById(R.id.mainWebView)
         configureWebView(webView)
 
@@ -97,6 +151,11 @@ class MainActivity : AppCompatActivity() {
         webView.loadUrl(BuildConfig.APP_URL)
     }
 
+    override fun onDestroy() {
+        stopIncomingRingtoneInternal()
+        super.onDestroy()
+    }
+
     @Suppress("SetJavaScriptEnabled")
     private fun configureWebView(view: WebView) {
         val cookieManager = CookieManager.getInstance()
@@ -108,6 +167,7 @@ class MainActivity : AppCompatActivity() {
         view.settings.mediaPlaybackRequiresUserGesture = false
         view.settings.allowFileAccess = true
         view.settings.allowContentAccess = true
+        view.addJavascriptInterface(AndroidBridge(), "AndroidBridge")
 
         view.webViewClient = object : WebViewClient() {
             override fun shouldOverrideUrlLoading(
@@ -159,6 +219,138 @@ class MainActivity : AppCompatActivity() {
         if (missingPermissions.isNotEmpty()) {
             permissionLauncher.launch(missingPermissions.toTypedArray())
         }
+    }
+
+    private fun hasNotificationPermission(): Boolean {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU) {
+            return true
+        }
+        return ContextCompat.checkSelfPermission(
+            this,
+            Manifest.permission.POST_NOTIFICATIONS
+        ) == PackageManager.PERMISSION_GRANTED
+    }
+
+    private fun createNotificationChannels() {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O) {
+            return
+        }
+
+        val manager = getSystemService(NotificationManager::class.java) ?: return
+
+        val messageSound = RingtoneManager.getDefaultUri(RingtoneManager.TYPE_NOTIFICATION)
+        val messageAudio = AudioAttributes.Builder()
+            .setUsage(AudioAttributes.USAGE_NOTIFICATION)
+            .setContentType(AudioAttributes.CONTENT_TYPE_SONIFICATION)
+            .build()
+
+        val callSound = RingtoneManager.getDefaultUri(RingtoneManager.TYPE_RINGTONE)
+        val callAudio = AudioAttributes.Builder()
+            .setUsage(AudioAttributes.USAGE_NOTIFICATION_RINGTONE)
+            .setContentType(AudioAttributes.CONTENT_TYPE_SONIFICATION)
+            .build()
+
+        val messageChannel = NotificationChannel(
+            CHANNEL_MESSAGES,
+            "NexTalk Messages",
+            NotificationManager.IMPORTANCE_DEFAULT
+        ).apply {
+            description = "Message notifications"
+            enableVibration(true)
+            setSound(messageSound, messageAudio)
+        }
+
+        val callChannel = NotificationChannel(
+            CHANNEL_CALLS,
+            "NexTalk Calls",
+            NotificationManager.IMPORTANCE_HIGH
+        ).apply {
+            description = "Incoming call alerts"
+            enableVibration(true)
+            setSound(callSound, callAudio)
+        }
+
+        manager.createNotificationChannels(listOf(messageChannel, callChannel))
+    }
+
+    @SuppressLint("MissingPermission")
+    private fun showNativeNotification(title: String?, body: String?, tag: String?, kind: String?) {
+        if (!hasNotificationPermission()) {
+            return
+        }
+
+        val channelId = if (kind == "call") CHANNEL_CALLS else CHANNEL_MESSAGES
+        val notificationId = (tag?.hashCode() ?: System.currentTimeMillis().toInt()) and 0x7fffffff
+
+        val intent = Intent(this, MainActivity::class.java).apply {
+            flags = Intent.FLAG_ACTIVITY_CLEAR_TOP or Intent.FLAG_ACTIVITY_SINGLE_TOP
+        }
+
+        val pendingIntent = PendingIntent.getActivity(
+            this,
+            notificationId,
+            intent,
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+        )
+
+        val builder = NotificationCompat.Builder(this, channelId)
+            .setSmallIcon(android.R.drawable.stat_notify_chat)
+            .setContentTitle(title?.takeIf { it.isNotBlank() } ?: "NexTalk")
+            .setContentText(body?.takeIf { it.isNotBlank() } ?: "You have a new notification")
+            .setStyle(
+                NotificationCompat.BigTextStyle().bigText(
+                    body?.takeIf { it.isNotBlank() } ?: "You have a new notification"
+                )
+            )
+            .setPriority(
+                if (kind == "call") {
+                    NotificationCompat.PRIORITY_HIGH
+                } else {
+                    NotificationCompat.PRIORITY_DEFAULT
+                }
+            )
+            .setCategory(
+                if (kind == "call") {
+                    NotificationCompat.CATEGORY_CALL
+                } else {
+                    NotificationCompat.CATEGORY_MESSAGE
+                }
+            )
+            .setAutoCancel(true)
+            .setContentIntent(pendingIntent)
+            .setDefaults(NotificationCompat.DEFAULT_ALL)
+
+        NotificationManagerCompat.from(this).notify(notificationId, builder.build())
+    }
+
+    private fun playNativeTone(kind: String?) {
+        val toneType = if (kind == "call") {
+            RingtoneManager.TYPE_RINGTONE
+        } else {
+            RingtoneManager.TYPE_NOTIFICATION
+        }
+        val uri = RingtoneManager.getDefaultUri(toneType) ?: return
+        val tone = RingtoneManager.getRingtone(applicationContext, uri) ?: return
+        tone.play()
+    }
+
+    private fun startIncomingRingtoneInternal() {
+        if (incomingRingtone?.isPlaying == true) {
+            return
+        }
+
+        val uri = RingtoneManager.getDefaultUri(RingtoneManager.TYPE_RINGTONE) ?: return
+        incomingRingtone = RingtoneManager.getRingtone(applicationContext, uri)?.apply {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
+                isLooping = true
+            }
+            play()
+        }
+    }
+
+    private fun stopIncomingRingtoneInternal() {
+        incomingRingtone?.stop()
+        incomingRingtone = null
     }
 
 }

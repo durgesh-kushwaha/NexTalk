@@ -95,6 +95,34 @@ class WebRTCManager {
     return this.ringtoneContext;
   }
 
+  startNativeIncomingRingtone() {
+    if (typeof window.AndroidBridge === 'undefined') {
+      return false;
+    }
+    if (typeof window.AndroidBridge.startIncomingRingtone !== 'function') {
+      return false;
+    }
+    try {
+      window.AndroidBridge.startIncomingRingtone();
+      return true;
+    } catch (error) {
+      return false;
+    }
+  }
+
+  stopNativeIncomingRingtone() {
+    if (typeof window.AndroidBridge === 'undefined') {
+      return;
+    }
+    if (typeof window.AndroidBridge.stopIncomingRingtone !== 'function') {
+      return;
+    }
+    try {
+      window.AndroidBridge.stopIncomingRingtone();
+    } catch (error) {
+    }
+  }
+
   playRingtoneBurst() {
     const ctx = this.ensureRingtoneContext();
     if (!ctx) {
@@ -124,6 +152,11 @@ class WebRTCManager {
   }
 
   startIncomingRingtone() {
+    const nativeStarted = this.startNativeIncomingRingtone();
+    if (nativeStarted) {
+      return;
+    }
+
     if (this.ringtoneTimer) {
       return;
     }
@@ -137,6 +170,8 @@ class WebRTCManager {
   }
 
   stopIncomingRingtone() {
+    this.stopNativeIncomingRingtone();
+
     if (this.ringtoneTimer) {
       clearInterval(this.ringtoneTimer);
       this.ringtoneTimer = null;
