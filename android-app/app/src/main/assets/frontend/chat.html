@@ -1,0 +1,196 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>NexTalk Workspace</title>
+  <link rel="stylesheet" href="css/chat.css?v=20260313e" />
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Material+Symbols+Rounded:opsz,wght,FILL,GRAD@20..48,500,1,0" />
+</head>
+<body>
+  <div class="app-bg"></div>
+
+  <div class="app-shell">
+    <aside class="sidebar" id="sidebar">
+      <div class="sidebar-top">
+        <div class="user-chip" id="my-profile-trigger" role="button" tabindex="0">
+          <div class="avatar" id="my-avatar">N</div>
+          <div>
+            <strong id="my-display-name">Loading</strong>
+            <span id="app-status">Connecting...</span>
+          </div>
+        </div>
+        <div class="header-actions">
+          <button class="ghost-btn icon-btn" id="sidebar-toggle-btn" title="Sidebar"><span class="material-symbols-rounded">left_panel_open</span></button>
+          <button class="ghost-btn icon-btn" id="notify-btn" title="Notifications"><span class="material-symbols-rounded">notifications</span></button>
+          <button class="ghost-btn icon-btn" id="theme-toggle-btn" title="Theme"><span class="material-symbols-rounded">dark_mode</span></button>
+          <button class="ghost-btn icon-btn" id="profile-btn" title="Profile"><span class="material-symbols-rounded">person</span></button>
+          <button class="ghost-btn icon-btn" id="admin-btn" style="display:none;" title="Admin"><span class="material-symbols-rounded">admin_panel_settings</span></button>
+          <button class="ghost-btn icon-btn" id="new-chat-btn" title="New Chat"><span class="material-symbols-rounded">chat_add_on</span></button>
+          <button class="ghost-btn icon-btn" id="refresh-btn" title="Refresh"><span class="material-symbols-rounded">refresh</span></button>
+          <button class="ghost-btn icon-btn" id="logout-btn" title="Exit"><span class="material-symbols-rounded">logout</span></button>
+        </div>
+      </div>
+
+      <div class="search-wrap">
+        <input type="text" id="search-input" placeholder="Search conversations" />
+      </div>
+
+      <div class="conversation-list" id="conversation-list">
+        <div class="placeholder">Loading conversations...</div>
+      </div>
+    </aside>
+
+    <main class="chat-panel">
+      <header class="chat-header" id="chat-header">
+        <button class="ghost-btn icon-btn mobile-only" id="mobile-menu-btn" title="Chats"><span class="material-symbols-rounded">chat</span></button>
+        <button class="ghost-btn icon-btn mobile-only" id="mobile-back-btn" title="Back"><span class="material-symbols-rounded">arrow_back</span></button>
+        <div class="chat-head-user" id="chat-profile-trigger" role="button" tabindex="0">
+          <div class="avatar" id="chat-avatar">?</div>
+          <div>
+            <h2 id="chat-partner-name">Select a conversation</h2>
+            <p id="chat-status">offline</p>
+          </div>
+        </div>
+        <div class="chat-head-actions">
+          <button class="call-btn icon-btn" id="btn-audio-call" title="Audio Call"><span class="material-symbols-rounded">call</span></button>
+          <button class="call-btn icon-btn" id="btn-video-call" title="Video Call"><span class="material-symbols-rounded">videocam</span></button>
+        </div>
+      </header>
+
+      <section class="empty-state" id="empty-state">
+        <h3>Ready to connect</h3>
+        <p>Start a conversation from the left panel and send your first message.</p>
+        <button class="empty-action" id="empty-start-chat">Start New Chat</button>
+      </section>
+
+      <section class="chat-view" id="chat-view">
+        <div class="messages-container" id="messages-container"></div>
+        <div class="composer">
+          <div class="reply-strip" id="reply-strip" hidden>
+            <div class="reply-strip-text">
+              <strong id="reply-to-name">Replying</strong>
+              <span id="reply-to-preview"></span>
+            </div>
+            <button class="ghost-btn icon-btn" id="reply-cancel-btn" title="Cancel reply"><span class="material-symbols-rounded">close</span></button>
+          </div>
+          <button id="attach-image-btn" class="attach-btn icon-btn" title="Send image"><span class="material-symbols-rounded">image</span></button>
+          <input id="image-input" type="file" accept="image/*" hidden />
+          <textarea id="message-input" rows="1" placeholder="Write a message"></textarea>
+          <button id="send-btn">Send</button>
+        </div>
+      </section>
+    </main>
+  </div>
+
+  <div class="scrim" id="scrim"></div>
+
+  <div class="modal-overlay" id="new-chat-modal">
+    <div class="modal">
+      <div class="modal-head">
+        <h3>Start New Chat</h3>
+        <button class="ghost-btn" id="close-new-chat-modal">Close</button>
+      </div>
+      <input type="text" id="user-search-input" placeholder="Search users by name or username" />
+      <div class="user-search-results" id="user-search-results"></div>
+    </div>
+  </div>
+
+  <div class="toast" id="toast"></div>
+
+  <div class="notif-sheet" id="notif-sheet">
+    <div class="notif-sheet-head">
+      <strong>Notifications</strong>
+      <button class="ghost-btn icon-btn" id="notif-sheet-close" title="Close"><span class="material-symbols-rounded">close</span></button>
+    </div>
+    <label class="notif-row">
+      <span>Desktop Popups</span>
+      <input type="checkbox" id="notif-desktop-toggle" />
+    </label>
+    <label class="notif-row">
+      <span>Message Sound</span>
+      <input type="checkbox" id="notif-message-sound-toggle" />
+    </label>
+    <label class="notif-row">
+      <span>Call Sound</span>
+      <input type="checkbox" id="notif-call-sound-toggle" />
+    </label>
+  </div>
+
+  <div class="msg-sheet" id="msg-action-sheet">
+    <button class="msg-sheet-btn" id="msg-reply-btn">Reply</button>
+    <button class="msg-sheet-btn" id="msg-info-btn">Info</button>
+    <button class="msg-sheet-btn" id="msg-delete-me-btn">Delete for me</button>
+    <button class="msg-sheet-btn" id="msg-delete-all-btn">Delete for everyone</button>
+    <button class="msg-sheet-btn secondary" id="msg-sheet-cancel-btn">Cancel</button>
+  </div>
+
+  <div class="msg-context-menu" id="msg-context-menu">
+    <button class="msg-context-btn" id="ctx-reply-btn">Reply</button>
+    <button class="msg-context-btn" id="ctx-info-btn">Info</button>
+    <button class="msg-context-btn" id="ctx-delete-me-btn">Delete for me</button>
+    <button class="msg-context-btn" id="ctx-delete-all-btn">Delete for everyone</button>
+  </div>
+
+  <div class="message-info-modal" id="message-info-modal">
+    <div class="message-info-card">
+      <h3>Message Info</h3>
+      <div class="info-row"><span>Sent</span><strong id="info-sent-at">-</strong></div>
+      <div class="info-row"><span>Delivered</span><strong id="info-delivered-at">-</strong></div>
+      <div class="info-row"><span>Read</span><strong id="info-read-at">-</strong></div>
+      <button class="ghost-btn" id="message-info-close">Close</button>
+    </div>
+  </div>
+
+  <div class="avatar-viewer" id="avatar-viewer">
+    <div class="avatar-viewer-head">
+      <button class="ghost-btn icon-btn" id="avatar-viewer-back" title="Back"><span class="material-symbols-rounded">arrow_back</span></button>
+      <strong id="avatar-viewer-title">Profile Photo</strong>
+      <button class="ghost-btn icon-btn" id="avatar-viewer-download" title="Download"><span class="material-symbols-rounded">download</span></button>
+    </div>
+    <div class="avatar-viewer-body">
+      <img id="avatar-viewer-image" alt="Avatar" />
+    </div>
+  </div>
+
+  <div class="call-notification" id="call-notification">
+    <div>
+      <strong id="call-notif-name">Unknown</strong>
+      <p id="call-notif-type">Incoming call</p>
+    </div>
+    <div class="call-notif-actions">
+      <button id="accept-call-btn">Accept</button>
+      <button id="reject-call-btn">Decline</button>
+    </div>
+  </div>
+
+  <div class="call-overlay" id="call-overlay">
+    <video id="remote-video" class="remote-video" autoplay playsinline></video>
+    <video id="local-video" class="local-video" autoplay playsinline muted></video>
+    <div class="audio-call-visual" id="audio-call-visual">
+      <div class="audio-call-avatar" id="audio-call-avatar">
+        <img id="audio-call-avatar-image" alt="Caller" hidden />
+        <span id="audio-call-avatar-fallback">?</span>
+      </div>
+    </div>
+    <div class="call-meta">
+      <strong id="call-partner-display">Call</strong>
+      <span id="call-state-text">Waiting</span>
+      <span id="call-timer">00:00</span>
+    </div>
+    <div class="call-controls">
+      <button id="btn-toggle-mute"><span class="material-symbols-rounded">mic</span><span>Mute</span></button>
+      <button id="btn-end-call" class="danger"><span class="material-symbols-rounded">call_end</span><span>End</span></button>
+      <button id="btn-toggle-camera"><span class="material-symbols-rounded">videocam</span><span>Camera</span></button>
+      <button id="btn-switch-camera"><span class="material-symbols-rounded">cameraswitch</span><span>Switch</span></button>
+    </div>
+  </div>
+
+  <script src="js/sw-cleanup.js"></script>
+  <script src="js/api.js?v=20260313e"></script>
+  <script src="https://cdn.jsdelivr.net/npm/sockjs-client@1.6.1/dist/sockjs.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@stomp/stompjs@7.0.0/bundles/stomp.umd.min.js"></script>
+  <script src="js/webrtc.js"></script>
+  <script src="js/chat.js?v=20260313c"></script>
+</body>
+</html>

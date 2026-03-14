@@ -1,0 +1,55 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>NexTalk Admin</title>
+  <link rel="stylesheet" href="css/admin.css" />
+</head>
+<body>
+  <div class="admin-shell">
+    <header class="topbar">
+      <h1>Admin Panel</h1>
+      <div class="actions">
+        <button id="theme-toggle-btn">Theme</button>
+        <button id="back-btn">Back to Chat</button>
+      </div>
+    </header>
+
+    <section class="card">
+      <h2>Database Stats</h2>
+      <div id="stats">Loading...</div>
+      <div class="btn-row">
+        <button id="refresh-stats-btn">Refresh</button>
+        <button id="delete-messages-btn" class="warn">Delete All Messages</button>
+        <button id="delete-chats-btn" class="danger">Delete All Chats</button>
+      </div>
+      <div id="status-msg"></div>
+    </section>
+
+    <section class="card">
+      <h2>Users and Storage</h2>
+      <div class="table-wrap">
+        <table class="users-table" id="users-table">
+          <thead>
+            <tr>
+              <th>User</th>
+              <th>Status</th>
+              <th>Messages</th>
+              <th>Storage</th>
+              <th>Actions</th>
+            </tr>
+          </thead>
+          <tbody id="users-table-body">
+            <tr><td colspan="5">Loading users...</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </section>
+  </div>
+
+  <script src="js/sw-cleanup.js"></script>
+  <script src="js/api.js?v=20260313e"></script>
+  <script src="js/admin.js?v=20260313b"></script>
+</body>
+</html>

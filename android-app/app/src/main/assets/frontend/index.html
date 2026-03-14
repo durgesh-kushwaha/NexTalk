@@ -1,0 +1,91 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>NexTalk</title>
+  <link rel="stylesheet" href="css/auth.css?v=20260313a" />
+</head>
+<body>
+
+  <button class="theme-fab" id="theme-toggle-btn">Theme</button>
+
+  <div class="auth-layout">
+    <section class="intro-card">
+      <h1>NexTalk</h1>
+      <p>Fast messaging and live calling built for teams, friends, and remote groups.</p>
+      <ul>
+        <li>Real-time private chat</li>
+        <li>Audio and video calling</li>
+        <li>Cross-platform API backend</li>
+      </ul>
+      <div class="intro-pills">
+        <span>STOMP</span>
+        <span>WebRTC</span>
+        <span>JWT</span>
+      </div>
+    </section>
+
+    <section class="auth-container">
+      <div class="brand">
+        <div class="brand-dot"></div>
+        <h2>Welcome Back</h2>
+        <p>Sign in or create a new account</p>
+      </div>
+
+      <div class="tab-bar">
+        <button class="tab-btn active" id="tab-login" onclick="showTab('login')">Sign In</button>
+        <button class="tab-btn" id="tab-register" onclick="showTab('register')">Sign Up</button>
+      </div>
+
+      <form id="login-form" class="auth-form" novalidate>
+        <label>
+          <span>Username</span>
+          <input type="text" id="login-username" placeholder="Enter your username" autocomplete="username" required />
+        </label>
+        <label>
+          <span>Password</span>
+          <input type="password" id="login-password" placeholder="Enter your password" autocomplete="current-password" required />
+        </label>
+        <div class="error-msg" id="login-error"></div>
+        <button type="submit" class="btn-primary" id="login-btn">
+          <span class="btn-text">Sign In</span>
+          <span class="btn-loader" hidden>Loading</span>
+        </button>
+      </form>
+
+      <form id="register-form" class="auth-form auth-hidden" novalidate>
+        <label>
+          <span>Username</span>
+          <input type="text" id="reg-username" placeholder="Choose a username" autocomplete="username" required />
+        </label>
+        <label>
+          <span>Display Name</span>
+          <input type="text" id="reg-display" placeholder="Name shown in chat" />
+        </label>
+        <label>
+          <span>Email</span>
+          <input type="email" id="reg-email" placeholder="you@example.com" autocomplete="email" required />
+        </label>
+        <label>
+          <span>Password</span>
+          <input type="password" id="reg-password" placeholder="At least 8 characters" autocomplete="new-password" required />
+        </label>
+        <div class="error-msg" id="register-error"></div>
+        <button type="submit" class="btn-primary" id="register-btn">
+          <span class="btn-text">Create Account</span>
+          <span class="btn-loader" hidden>Loading</span>
+        </button>
+      </form>
+    </section>
+  </div>
+
+  <div class="bg-shape bg-one"></div>
+  <div class="bg-shape bg-two"></div>
+
+  <script src="js/sw-cleanup.js"></script>
+  <script src="js/api.js?v=20260313e"></script>
+  <script src="js/auth.js"></script>
+
+</body>
+</html>

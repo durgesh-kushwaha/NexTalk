@@ -1,0 +1,21 @@
+# Gradle
+.gradle/
+build/
+
+# Android module build outputs
+*/build/
+
+# Local machine SDK path
+local.properties
+
+# IDE files
+.idea/
+*.iml
+
+# Kotlin metadata
+.kotlin/
+
+# Misc
+captures/
+.externalNativeBuild/
+.cxx/
