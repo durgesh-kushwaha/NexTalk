@@ -44,6 +44,8 @@ class MainActivity : AppCompatActivity() {
     companion object {
         private const val CHANNEL_MESSAGES = "nextalk_messages"
         private const val CHANNEL_CALLS = "nextalk_calls"
+        @Volatile
+        var isAppInForeground: Boolean = false
     }
 
     private lateinit var webView: WebView
@@ -285,6 +287,16 @@ class MainActivity : AppCompatActivity() {
         stopIncomingRingtoneInternal()
         networkExecutor.shutdownNow()
         super.onDestroy()
+    }
+
+    override fun onResume() {
+        super.onResume()
+        isAppInForeground = true
+    }
+
+    override fun onPause() {
+        isAppInForeground = false
+        super.onPause()
     }
 
     override fun onUserLeaveHint() {

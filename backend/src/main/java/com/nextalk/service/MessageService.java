@@ -1,5 +1,26 @@
 package com.nextalk.service;
 
+import java.io.IOException;
+import java.io.InputStream;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.nio.file.Paths;
+import java.nio.file.StandardCopyOption;
+import java.time.LocalDateTime;
+import java.util.ArrayList;
+import java.util.List;
+import java.util.Set;
+import java.util.UUID;
+import java.util.stream.Collectors;
+
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.beans.factory.annotation.Value;
+import org.springframework.data.domain.PageRequest;
+import org.springframework.http.HttpStatus;
+import org.springframework.messaging.simp.SimpMessagingTemplate;
+import org.springframework.stereotype.Service;
+import org.springframework.web.multipart.MultipartFile;
+
 import com.nextalk.dto.MessageDTO;
 import com.nextalk.dto.UserDTO;
 import com.nextalk.exception.ApiException;
@@ -10,26 +31,6 @@ import com.nextalk.model.User;
 import com.nextalk.repository.ConversationRepository;
 import com.nextalk.repository.MessageRepository;
 import com.nextalk.repository.UserRepository;
-import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.beans.factory.annotation.Value;
-import org.springframework.data.domain.PageRequest;
-import org.springframework.http.HttpStatus;
-import org.springframework.messaging.simp.SimpMessagingTemplate;
-import org.springframework.stereotype.Service;
-import org.springframework.web.multipart.MultipartFile;
-
-import java.io.IOException;
-import java.io.InputStream;
-import java.nio.file.Files;
-import java.nio.file.Path;
-import java.nio.file.Paths;
-import java.nio.file.StandardCopyOption;
-import java.time.LocalDateTime;
-import java.util.List;
-import java.util.ArrayList;
-import java.util.Set;
-import java.util.UUID;
-import java.util.stream.Collectors;
 
 @Service
 public class MessageService {
@@ -186,6 +187,41 @@ public class MessageService {
 
         return dto;
     }
+
+        public MessageDTO sendVideoNoticeMessage(String conversationId, String senderUsername, String fileName, long fileSize) {
+        Conversation conversation = conversationService.getAndValidateParticipant(conversationId, senderUsername);
+        User sender = userRepository.findByUsername(senderUsername)
+            .orElseThrow(() -> new ApiException(HttpStatus.NOT_FOUND, "Sender not found"));
+
+        String safeName = sanitizeVideoFileName(fileName);
+        long safeSize = Math.max(0L, fileSize);
+        String content = "VIDEO_NOTICE|" + safeName + "|" + safeSize;
+
+        Message message = Message.builder()
+            .conversationId(conversation.getId())
+            .senderId(sender.getId())
+            .content(content)
+            .type(Message.MessageType.FILE)
+            .sentAt(LocalDateTime.now())
+            .build();
+        message = messageRepository.save(message);
+
+        MessageDTO dto = MessageDTO.from(message, UserDTO.from(sender));
+        messagingTemplate.convertAndSend("/topic/conversation/" + conversationId, dto);
+
+        List<String> recipientUserIds = conversation.getParticipants().stream()
+            .map(ConversationParticipant::getUserId)
+            .filter(id -> !id.equals(sender.getId()))
+            .collect(Collectors.toList());
+        pushNotificationService.sendMessageNotificationToConversationParticipants(
+            conversationId,
+            sender.getDisplayName() != null ? sender.getDisplayName() : sender.getUsername(),
+            recipientUserIds,
+            "Video"
+        );
+
+        return dto;
+        }
 
     private MessageDTO toMessageDTO(Message message) {
         User sender = userRepository.findById(message.getSenderId())
@@ -344,5 +380,17 @@ public class MessageService {
             return compact;
         }
         return compact.substring(0, 77) + "...";
+    }
+
+    private String sanitizeVideoFileName(String value) {
+        String source = value == null ? "video" : value.trim();
+        if (source.isBlank()) {
+            return "video";
+        }
+        String compact = source.replaceAll("\\s+", " ");
+        if (compact.length() <= 120) {
+            return compact;
+        }
+        return compact.substring(0, 120);
     }
 }

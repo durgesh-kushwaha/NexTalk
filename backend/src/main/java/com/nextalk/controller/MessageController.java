@@ -2,6 +2,7 @@ package com.nextalk.controller;
 
 import com.nextalk.dto.MessageDTO;
 import com.nextalk.dto.SendMessageRequest;
+import com.nextalk.dto.SendVideoNoticeRequest;
 import com.nextalk.service.MessageService;
 import jakarta.validation.Valid;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -54,6 +55,20 @@ public class MessageController {
             conversationId,
             currentUser.getUsername(),
             image
+        );
+        return ResponseEntity.status(HttpStatus.CREATED).body(message);
+    }
+
+    @PostMapping("/video-notice")
+    public ResponseEntity<MessageDTO> sendVideoNotice(
+            @PathVariable String conversationId,
+            @Valid @RequestBody SendVideoNoticeRequest request,
+            @AuthenticationPrincipal UserDetails currentUser) {
+        MessageDTO message = messageService.sendVideoNoticeMessage(
+            conversationId,
+            currentUser.getUsername(),
+            request.getFileName(),
+            request.getFileSize()
         );
         return ResponseEntity.status(HttpStatus.CREATED).body(message);
     }

@@ -22,6 +22,11 @@ class NextalkFirebaseMessagingService : FirebaseMessagingService() {
 
     override fun onMessageReceived(message: RemoteMessage) {
         super.onMessageReceived(message)
+
+        if (MainActivity.isAppInForeground) {
+            return
+        }
+
         ensureChannels()
 
         val data = message.data

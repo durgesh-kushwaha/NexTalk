@@ -262,6 +262,26 @@ function formatFileSize(bytes) {
   return `${(size / (1024 * 1024)).toFixed(1)} MB`;
 }
 
+function encodeVideoNoticeContent(fileName, fileSize) {
+  const safeName = String(fileName || 'video').replaceAll('|', ' ').trim() || 'video';
+  const safeSize = Math.max(0, Number(fileSize || 0));
+  return `VIDEO_NOTICE|${safeName}|${safeSize}`;
+}
+
+function parseVideoNoticeContent(content) {
+  const raw = String(content || '');
+  if (!raw.startsWith('VIDEO_NOTICE|')) {
+    return null;
+  }
+  const parts = raw.split('|');
+  const name = (parts[1] || 'Video').trim() || 'Video';
+  const size = Number(parts[2] || 0);
+  return {
+    fileName: name,
+    fileSize: Number.isFinite(size) ? Math.max(0, size) : 0,
+  };
+}
+
 function createLocalMessage(type, payload) {
   const sentAt = new Date().toISOString();
   return {
@@ -402,7 +422,7 @@ function notifyIncomingMessage(conversation, message) {
   recentNotificationMap.set(key, { signature, at: now });
 
   showDesktopNotification(title, content, `msg-${conversation.id}`, 'message');
-  if (messageSoundEnabled) {
+  if (messageSoundEnabled && !hasAndroidBridge()) {
     playNotificationTone('message');
   }
 }
@@ -900,6 +920,9 @@ function getMessagePreview(message) {
   if (message.type === 'IMAGE') {
     return 'Image';
   }
+  if (message.type === 'FILE' && parseVideoNoticeContent(message.content)) {
+    return 'Video';
+  }
   const text = String(message.content || '').trim();
   return text.length > 80 ? `${text.slice(0, 77)}...` : text;
 }
@@ -1002,7 +1025,9 @@ function renderConversationList(data) {
     row.dataset.id = conversation.id;
     const title = getConversationName(conversation);
     const rawPreview = conversation.lastMessage || '';
-    const previewText = rawPreview.startsWith('/media/chat-images/') ? 'Image' : rawPreview;
+    const previewText = rawPreview.startsWith('/media/chat-images/')
+      ? 'Image'
+      : (parseVideoNoticeContent(rawPreview) ? 'Video' : rawPreview);
     const preview = previewText ? escapeHtml(previewText) : 'No messages yet';
     const time = formatTime(conversation.lastMessageAt);
     const unreadCount = getUnreadCount(conversation.id);
@@ -1333,7 +1358,11 @@ function subscribeConversation(conversationId) {
       incrementUnread(conversationId);
     }
     if (!own && isAway()) {
-      const preview = message.type === 'IMAGE' ? 'Image' : (message.content || 'New message');
+      const preview = message.type === 'IMAGE'
+        ? 'Image'
+        : (message.type === 'FILE' && parseVideoNoticeContent(message.content)
+          ? 'Video'
+          : (message.content || 'New message'));
       notifyIncomingMessage(currentConversation || { id: conversationId, name: 'Chat', type: 'PRIVATE', participants: [] }, preview);
     }
     loadConversations(true);
@@ -1345,17 +1374,23 @@ function renderMessageContent(message) {
     return escapeHtml('This message was deleted');
   }
 
-  if (message.type === 'VIDEO' || message.type === 'VIDEO_LOCAL') {
-    const fileName = escapeHtml(message.localFileName || message.content || 'Video file');
-    const sizeLabel = message.localFileSize ? ` (${escapeHtml(formatFileSize(message.localFileSize))})` : '';
+  const videoNotice = message.type === 'FILE' ? parseVideoNoticeContent(message.content) : null;
+
+  if (message.type === 'VIDEO' || message.type === 'VIDEO_LOCAL' || videoNotice) {
+    const baseName = message.localFileName || videoNotice?.fileName || message.content || 'Video file';
+    const baseSize = message.localFileSize || videoNotice?.fileSize || 0;
+    const fileName = escapeHtml(baseName);
+    const sizeLabel = baseSize ? ` (${escapeHtml(formatFileSize(baseSize))})` : '';
     let note = 'Use app to see video file';
     if (isNativeAppClient()) {
       if (message.localSendState === 'sending') {
         note = 'Sending...';
-      } else if (message.localSendState === 'sent') {
+      } else if (message.localSendState === 'sent' && message.localFileId) {
         note = 'Sent and stored on this device';
-      } else {
+      } else if (message.localFileId) {
         note = 'Stored on this device';
+      } else {
+        note = 'Open app to view video';
       }
     }
     return `
@@ -1442,7 +1477,7 @@ function appendMessage(message, smooth) {
     }
   }
 
-  if (message.type === 'VIDEO_LOCAL' || message.type === 'VIDEO') {
+  if (message.type === 'VIDEO_LOCAL' || message.type === 'VIDEO' || (message.type === 'FILE' && parseVideoNoticeContent(message.content))) {
     hydrateLocalVideoCard(bubble, message);
   }
 
@@ -1625,17 +1660,32 @@ async function sendLocalVideoMessage(file) {
     return;
   }
 
-  const message = {
-    ...pendingMessage,
-    content: file.name,
-    localFileId,
-    localFileName: file.name,
-    localFileSize: file.size,
-    localSendState: 'sent',
-  };
+  try {
+    const remote = await api.post(`/conversations/${currentConversation.id}/messages/video-notice`, {
+      fileName: file.name,
+      fileSize: file.size,
+    });
 
-  appendMessage(message, true);
-  showToast('Video sent and saved locally');
+    const bubble = messagesContainer.querySelector(`[data-message-id="${pendingMessage.id}"]`);
+    bubble?.remove();
+
+    const message = {
+      ...remote,
+      content: encodeVideoNoticeContent(file.name, file.size),
+      localFileId,
+      localFileName: file.name,
+      localFileSize: file.size,
+      localSendState: 'sent',
+    };
+
+    appendMessage(message, true);
+    loadConversations(true);
+    showToast('Video sent. Receiver can open in app');
+  } catch (error) {
+    const bubble = messagesContainer.querySelector(`[data-message-id="${pendingMessage.id}"]`);
+    bubble?.remove();
+    showToast(error.message || 'Failed to send video notice');
+  }
 }
 
 async function sendLocalContactMessage() {

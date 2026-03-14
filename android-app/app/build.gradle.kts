@@ -20,7 +20,7 @@ android {
         buildConfigField(
             "String",
             "APP_URL",
-            "\"file:///android_asset/frontend/index.html?backend=https://durgesh-kushwaha-nextalk.hf.space\""
+            "\"file:///android_asset/frontend/chat.html?backend=https://durgesh-kushwaha-nextalk.hf.space\""
         )
     }
 
