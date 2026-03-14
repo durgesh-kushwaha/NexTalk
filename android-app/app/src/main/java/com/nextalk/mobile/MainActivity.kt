@@ -292,6 +292,7 @@ class MainActivity : AppCompatActivity() {
     override fun onResume() {
         super.onResume()
         isAppInForeground = true
+        triggerNativePushRegistrationInWebView()
     }
 
     override fun onPause() {
@@ -652,6 +653,29 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
+    private fun emitNativeFcmRegisterResult(success: Boolean, statusCode: Int) {
+        val payload = JSONObject().apply {
+            put("success", success)
+            put("status", statusCode)
+        }.toString()
+        val js = "window.onNativeFcmRegisterResult && window.onNativeFcmRegisterResult(${JSONObject.quote(payload)});"
+        webView.post {
+            webView.evaluateJavascript(js, null)
+        }
+    }
+
+    private fun triggerNativePushRegistrationInWebView() {
+        if (!::webView.isInitialized) {
+            return
+        }
+        webView.post {
+            webView.evaluateJavascript(
+                "window.__nextalkTriggerPushRegistration && window.__nextalkTriggerPushRegistration();",
+                null
+            )
+        }
+    }
+
     private fun startCallAudioSession() {
         audioManager.mode = AudioManager.MODE_IN_COMMUNICATION
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.S) {
@@ -673,6 +697,7 @@ class MainActivity : AppCompatActivity() {
     private fun postFcmTokenToBackend(baseOrigin: String, authToken: String, fcmToken: String) {
         networkExecutor.execute {
             var connection: HttpURLConnection? = null
+            var statusCode = 0
             try {
                 val url = URL("$baseOrigin/api/devices/fcm-token")
                 connection = (url.openConnection() as HttpURLConnection).apply {
@@ -689,8 +714,10 @@ class MainActivity : AppCompatActivity() {
                     output.write(payload.toByteArray(Charsets.UTF_8))
                 }
 
-                connection.responseCode
+                statusCode = connection.responseCode
+                emitNativeFcmRegisterResult(statusCode in 200..299, statusCode)
             } catch (_: Exception) {
+                emitNativeFcmRegisterResult(false, statusCode)
             } finally {
                 connection?.disconnect()
             }

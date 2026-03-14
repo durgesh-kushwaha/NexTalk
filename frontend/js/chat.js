@@ -144,6 +144,10 @@ const avatarViewerTitle = document.getElementById('avatar-viewer-title');
 const avatarViewerDownload = document.getElementById('avatar-viewer-download');
 let viewerDownloadUrl = '';
 let pendingNativeContactResolve = null;
+let nativePushRegistered = false;
+let nativePushRetryTimer = null;
+let nativePushLastAttemptAt = 0;
+let nativePushAttemptCount = 0;
 
 function isTouchLayout() {
   return window.matchMedia('(hover: none), (pointer: coarse)').matches;
@@ -234,16 +238,68 @@ function requestNativeContactPick() {
   });
 }
 
-function registerNativePushToken() {
+function clearNativePushRetryTimer() {
+  if (!nativePushRetryTimer) {
+    return;
+  }
+  clearInterval(nativePushRetryTimer);
+  nativePushRetryTimer = null;
+}
+
+function ensureNativePushRetryLoop() {
+  if (!isNativeAppClient() || nativePushRegistered || nativePushRetryTimer) {
+    return;
+  }
+  nativePushRetryTimer = setInterval(() => {
+    if (nativePushRegistered) {
+      clearNativePushRetryTimer();
+      return;
+    }
+    registerNativePushToken();
+  }, 12000);
+}
+
+function handleNativeFcmRegisterResult(rawPayload) {
+  let payload = { success: false, status: 0 };
+  try {
+    payload = JSON.parse(rawPayload || '{}');
+  } catch (error) {
+    payload = { success: false, status: 0 };
+  }
+
+  nativePushRegistered = !!payload.success;
+  if (nativePushRegistered) {
+    clearNativePushRetryTimer();
+    return;
+  }
+
+  ensureNativePushRetryLoop();
+}
+
+window.onNativeFcmRegisterResult = handleNativeFcmRegisterResult;
+window.__nextalkTriggerPushRegistration = () => registerNativePushToken(true);
+
+function registerNativePushToken(force) {
   if (!hasAndroidBridge()) {
     return;
   }
   if (typeof window.AndroidBridge.registerFcmToken !== 'function') {
     return;
   }
+
+  const now = Date.now();
+  if (!force && (now - nativePushLastAttemptAt) < 8000) {
+    return;
+  }
+
+  nativePushLastAttemptAt = now;
+  nativePushAttemptCount += 1;
+
   try {
     window.AndroidBridge.registerFcmToken(TOKEN || '', BACKEND_ORIGIN || '');
+    ensureNativePushRetryLoop();
   } catch (error) {
+    ensureNativePushRetryLoop();
   }
 }
 
@@ -1774,6 +1830,7 @@ async function searchUsers(query) {
 function onConnected() {
   setStatus('Connected', true);
   updateCallButtonsState();
+  registerNativePushToken(true);
   const handleSignalFrame = (frame) => {
     let signal = null;
     try {
@@ -2320,11 +2377,13 @@ document.addEventListener('keydown', (event) => {
 document.addEventListener('visibilitychange', () => {
   if (!document.hidden) {
     markConversationRead();
+    registerNativePushToken(true);
   }
 });
 
 window.addEventListener('focus', () => {
   markConversationRead();
+  registerNativePushToken(true);
 });
 
 init();
