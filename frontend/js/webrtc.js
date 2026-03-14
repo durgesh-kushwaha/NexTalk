@@ -50,6 +50,12 @@ class WebRTCManager {
     this.remoteAudio.playsInline = true;
     this.remoteVideo.style.transform = 'scaleX(-1)';
     this.remoteVideo.style.webkitTransform = 'scaleX(-1)';
+    this.localVideo.addEventListener('click', () => {
+      if (this.isMobileDevice()) {
+        return;
+      }
+      this.localVideo.classList.toggle('expanded');
+    });
 
     document.getElementById('accept-call-btn').addEventListener('click', () => this.acceptCall());
     document.getElementById('reject-call-btn').addEventListener('click', () => this.rejectCall());
@@ -87,6 +93,19 @@ class WebRTCManager {
   setControlLabel(buttonId, icon, text) {
     const button = document.getElementById(buttonId);
     button.innerHTML = `<span class="material-symbols-rounded">${icon}</span><span>${text}</span>`;
+  }
+
+  updateAndroidVideoCallState(active) {
+    if (typeof window.AndroidBridge === 'undefined') {
+      return;
+    }
+    if (typeof window.AndroidBridge.setVideoCallState !== 'function') {
+      return;
+    }
+    try {
+      window.AndroidBridge.setVideoCallState(!!active);
+    } catch (error) {
+    }
   }
 
   ensureRingtoneContext() {
@@ -440,8 +459,9 @@ class WebRTCManager {
     this.applyAudioAvatar();
     this.callInProgress = true;
     this.partnerLabel.textContent = this.callPartnerDisplayName || this.callPartner;
-    this.callStateLabel.textContent = 'Calling...';
+    this.callStateLabel.textContent = 'Ringing...';
     this.overlay.classList.add('open');
+    this.updateAndroidVideoCallState(this.isVideoCall);
     this.requestTimeoutId = setTimeout(() => {
       this.flash('No response from user');
       this.cleanup();
@@ -459,6 +479,7 @@ class WebRTCManager {
     this.callInProgress = true;
     this.notification.classList.remove('open');
     this.overlay.classList.add('open');
+    this.updateAndroidVideoCallState(this.isVideoCall);
     this.partnerLabel.textContent = this.callPartnerDisplayName || this.callPartner || 'Call';
     this.callStateLabel.textContent = 'Preparing media...';
     this.applyCallModeClass();
@@ -875,6 +896,8 @@ class WebRTCManager {
     if (this.audioOutputWrap) {
       this.audioOutputWrap.hidden = true;
     }
+    this.localVideo.classList.remove('expanded');
+    this.updateAndroidVideoCallState(false);
     this.applyCallModeClass();
     this.setControlLabel('btn-toggle-mute', 'mic', 'Mute');
     this.updateCallControlsForMode();

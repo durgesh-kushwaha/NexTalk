@@ -7,7 +7,7 @@ const NOTIF_DESKTOP_KEY = 'nextalk_notif_desktop';
 const NOTIF_MESSAGE_SOUND_KEY = 'nextalk_notif_message_sound';
 const NOTIF_CALL_SOUND_KEY = 'nextalk_notif_call_sound';
 const MAX_IMAGE_FILE_SIZE = 5 * 1024 * 1024;
-const MAX_VIDEO_FILE_SIZE = 25 * 1024 * 1024;
+const MAX_VIDEO_FILE_SIZE = 50 * 1024 * 1024;
 const BACKEND_ORIGIN = typeof getNextalkBackendOrigin === 'function'
   ? getNextalkBackendOrigin().replace(/\/$/, '')
   : 'http://localhost:8080';
@@ -37,6 +37,7 @@ let messageSoundEnabled = localStorage.getItem(NOTIF_MESSAGE_SOUND_KEY) !== '0';
 let callSoundEnabled = localStorage.getItem(NOTIF_CALL_SOUND_KEY) !== '0';
 const conversationSnapshot = new Map();
 const messageSnapshot = new Map();
+const unreadByConversation = new Map();
 const MOBILE_BREAKPOINT = 860;
 const TYPING_IDLE_TIMEOUT_MS = 1400;
 const TYPING_STATUS_TIMEOUT_MS = 1800;
@@ -693,6 +694,40 @@ function formatDateTime(iso) {
   });
 }
 
+function formatLastSeen(iso) {
+  if (!iso) {
+    return 'offline';
+  }
+  const date = new Date(iso);
+  if (Number.isNaN(date.getTime())) {
+    return 'offline';
+  }
+  return `last seen ${date.toLocaleString([], {
+    month: 'short',
+    day: 'numeric',
+    hour: '2-digit',
+    minute: '2-digit',
+  })}`;
+}
+
+function getUnreadCount(conversationId) {
+  return unreadByConversation.get(conversationId) || 0;
+}
+
+function incrementUnread(conversationId) {
+  if (!conversationId) {
+    return;
+  }
+  unreadByConversation.set(conversationId, getUnreadCount(conversationId) + 1);
+}
+
+function resetUnread(conversationId) {
+  if (!conversationId) {
+    return;
+  }
+  unreadByConversation.delete(conversationId);
+}
+
 function tickIcon() {
   return '<svg viewBox="0 0 16 16" aria-hidden="true"><path d="M2 8.5 5.4 12 14 3.5"/></svg>';
 }
@@ -847,6 +882,10 @@ function renderConversationList(data) {
     const previewText = rawPreview.startsWith('/media/chat-images/') ? 'Image' : rawPreview;
     const preview = previewText ? escapeHtml(previewText) : 'No messages yet';
     const time = formatTime(conversation.lastMessageAt);
+    const unreadCount = getUnreadCount(conversation.id);
+    const unreadMarkup = unreadCount > 0
+      ? `<span class="conv-unread" aria-label="${unreadCount} unread">${unreadCount > 99 ? '99+' : unreadCount}</span>`
+      : '';
 
     row.innerHTML = `
       <div class="avatar">${getAvatarMarkup(title, getConversationPartner(conversation)?.avatarUrl)}</div>
@@ -854,7 +893,10 @@ function renderConversationList(data) {
         <div class="conv-name">${escapeHtml(title)}</div>
         <div class="conv-preview">${preview}</div>
       </div>
-      <div class="conv-time">${escapeHtml(time)}</div>
+      <div class="conv-time-wrap">
+        <div class="conv-time">${escapeHtml(time)}</div>
+        ${unreadMarkup}
+      </div>
     `;
 
     row.addEventListener('click', () => {
@@ -1128,7 +1170,7 @@ function setChatHeader(conversation) {
     setAvatarVisual(chatAvatar, title, '');
   } else {
     const online = partner?.status === 'ONLINE';
-    setChatStatusBase(online ? 'online' : 'offline');
+    setChatStatusBase(online ? 'online' : formatLastSeen(partner?.lastSeenAt));
   }
   updateCallButtonsState();
   if (window.webRTC) {
@@ -1164,6 +1206,8 @@ function subscribeConversation(conversationId) {
       if (!isAway()) {
         markConversationRead();
       }
+    } else if (!own) {
+      incrementUnread(conversationId);
     }
     if (!own && isAway()) {
       const preview = message.type === 'IMAGE' ? 'Image' : (message.content || 'New message');
@@ -1181,7 +1225,16 @@ function renderMessageContent(message) {
   if (message.type === 'VIDEO' || message.type === 'VIDEO_LOCAL') {
     const fileName = escapeHtml(message.localFileName || message.content || 'Video file');
     const sizeLabel = message.localFileSize ? ` (${escapeHtml(formatFileSize(message.localFileSize))})` : '';
-    const note = isNativeAppClient() ? 'Preparing local video...' : 'Use app to see video file';
+    let note = 'Use app to see video file';
+    if (isNativeAppClient()) {
+      if (message.localSendState === 'sending') {
+        note = 'Sending...';
+      } else if (message.localSendState === 'sent') {
+        note = 'Sent and stored on this device';
+      } else {
+        note = 'Stored on this device';
+      }
+    }
     return `
       <div class="local-media-card" data-local-file-id="${escapeHtml(message.localFileId || '')}" data-local-kind="video">
         <strong>${fileName}${sizeLabel}</strong>
@@ -1314,6 +1367,7 @@ async function openConversation(conversation) {
   stopLocalTyping();
   clearTypingStatus();
   currentConversation = conversation;
+  resetUnread(conversation.id);
   clearReplyTarget();
   if (isMobileScreen()) {
     setMobileView('chat');
@@ -1427,25 +1481,38 @@ async function sendLocalVideoMessage(file) {
     return;
   }
   if (file.size > MAX_VIDEO_FILE_SIZE) {
-    showToast('Video exceeds 25MB limit');
+    showToast('Video exceeds 50MB limit');
     return;
   }
 
+  const pendingMessage = createLocalMessage('VIDEO_LOCAL', {
+    content: file.name,
+    localFileId: '',
+    localFileName: file.name,
+    localFileSize: file.size,
+    localSendState: 'sending',
+  });
+  appendMessage(pendingMessage, true);
+
   const localFileId = await storeLocalFile(file);
   if (!localFileId) {
+    const bubble = messagesContainer.querySelector(`[data-message-id="${pendingMessage.id}"]`);
+    bubble?.remove();
     showToast('Could not save video locally');
     return;
   }
 
-  const message = createLocalMessage('VIDEO_LOCAL', {
+  const message = {
+    ...pendingMessage,
     content: file.name,
     localFileId,
     localFileName: file.name,
     localFileSize: file.size,
-  });
+    localSendState: 'sent',
+  };
 
   appendMessage(message, true);
-  showToast('Video saved locally in app chat');
+  showToast('Video sent and saved locally');
 }
 
 async function sendLocalContactMessage() {

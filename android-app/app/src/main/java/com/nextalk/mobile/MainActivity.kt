@@ -15,6 +15,8 @@ import android.content.pm.PackageManager
 import android.net.Uri
 import android.os.Build
 import android.os.Bundle
+import android.app.PictureInPictureParams
+import android.util.Rational
 import org.json.JSONArray
 import org.json.JSONObject
 import android.webkit.JavascriptInterface
@@ -44,6 +46,7 @@ class MainActivity : AppCompatActivity() {
     private var fileChooserCallback: ValueCallback<Array<Uri>>? = null
     private var pendingWebPermissionRequest: PermissionRequest? = null
     private var incomingRingtone: Ringtone? = null
+    private var videoCallActive: Boolean = false
 
     inner class AndroidBridge {
         @JavascriptInterface
@@ -88,6 +91,18 @@ class MainActivity : AppCompatActivity() {
         fun setAudioOutputDevice(deviceId: String?): Boolean {
             val id = deviceId?.toIntOrNull() ?: return false
             return runCatching { setCommunicationAudioOutput(id) }.getOrDefault(false)
+        }
+
+        @JavascriptInterface
+        fun setVideoCallState(active: Boolean) {
+            videoCallActive = active
+        }
+
+        @JavascriptInterface
+        fun enterPictureInPicture() {
+            runOnUiThread {
+                enterVideoPipIfPossible()
+            }
         }
     }
 
@@ -172,6 +187,11 @@ class MainActivity : AppCompatActivity() {
     override fun onDestroy() {
         stopIncomingRingtoneInternal()
         super.onDestroy()
+    }
+
+    override fun onUserLeaveHint() {
+        super.onUserLeaveHint()
+        enterVideoPipIfPossible()
     }
 
     @Suppress("SetJavaScriptEnabled")
@@ -369,6 +389,24 @@ class MainActivity : AppCompatActivity() {
     private fun stopIncomingRingtoneInternal() {
         incomingRingtone?.stop()
         incomingRingtone = null
+    }
+
+    private fun enterVideoPipIfPossible() {
+        if (!videoCallActive) {
+            return
+        }
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O) {
+            return
+        }
+        if (isInPictureInPictureMode) {
+            return
+        }
+
+        val params = PictureInPictureParams.Builder()
+            .setAspectRatio(Rational(16, 9))
+            .build()
+
+        enterPictureInPictureMode(params)
     }
 
     private fun buildAudioOutputDevicesJson(): String {
