@@ -20,6 +20,7 @@ if (!TOKEN || !CURRENT_USER) {
 let stompClient = null;
 let currentConversation = null;
 let activeSubscription = null;
+let userMessageSubscription = null;
 let conversationsCache = [];
 let searchTimer = null;
 let refreshIntervalId = null;
@@ -1404,29 +1405,46 @@ function subscribeConversation(conversationId) {
     if (messageFrom && messageFrom !== String(CURRENT_USER || '').toLowerCase()) {
       clearTypingStatus();
     }
+    handleRealtimeIncomingMessage(message);
+  });
+}
+
+function handleRealtimeIncomingMessage(message) {
+  if (!message || !message.id || !message.conversationId) {
+    return;
+  }
+
+  const conversationId = message.conversationId;
+  const senderId = message.sender?.id || '';
+  const senderUsername = String(message.sender?.username || '').toLowerCase();
+  const own = (USER_ID && senderId === USER_ID)
+    || (senderUsername && senderUsername === String(CURRENT_USER || '').toLowerCase());
+
+  if (currentConversation?.id === conversationId) {
     appendMessage(message, true);
-    const senderId = message.sender?.id || '';
-    const senderUsername = String(message.sender?.username || '').toLowerCase();
-    const own = (USER_ID && senderId === USER_ID)
-      || (senderUsername && senderUsername === String(CURRENT_USER || '').toLowerCase());
-    if (!own && currentConversation?.id === conversationId) {
+    if (!own) {
       markConversationDelivered();
       if (!isAway()) {
         markConversationRead();
       }
-    } else if (!own) {
-      incrementUnread(conversationId);
-    }
-    if (!own && (isAway() || currentConversation?.id !== conversationId)) {
-      const preview = message.type === 'IMAGE'
-        ? 'Image'
-        : (message.type === 'FILE' && parseVideoNoticeContent(message.content)
-          ? 'Video'
-          : (message.content || 'New message'));
-      notifyIncomingMessage(currentConversation || { id: conversationId, name: 'Chat', type: 'PRIVATE', participants: [] }, preview);
     }
     loadConversations(true);
-  });
+    return;
+  }
+
+  if (!own) {
+    incrementUnread(conversationId);
+    const preview = message.type === 'IMAGE'
+      ? 'Image'
+      : (message.type === 'FILE' && parseVideoNoticeContent(message.content)
+        ? 'Video'
+        : (message.content || 'New message'));
+    const conversation = conversationsCache.find((item) => item.id === conversationId)
+      || { id: conversationId, name: message.sender?.displayName || message.sender?.username || 'Chat', type: 'PRIVATE', participants: [] };
+    notifyIncomingMessage(conversation, preview);
+  }
+
+  loadConversations(true);
 }
 
 function renderMessageContent(message) {
@@ -1832,6 +1850,10 @@ function onConnected() {
   setStatus('Connected', true);
   updateCallButtonsState();
   registerNativePushToken(true);
+  if (userMessageSubscription) {
+    userMessageSubscription.unsubscribe();
+    userMessageSubscription = null;
+  }
   const handleSignalFrame = (frame) => {
     let signal = null;
     try {
@@ -1861,6 +1883,15 @@ function onConnected() {
       notifyIncomingCall(signal.fromUsername, !!signal.videoEnabled);
     }
   };
+  userMessageSubscription = stompClient.subscribe('/user/queue/messages', (frame) => {
+    let message = null;
+    try {
+      message = JSON.parse(frame.body);
+    } catch (error) {
+      return;
+    }
+    handleRealtimeIncomingMessage(message);
+  });
   stompClient.subscribe('/user/queue/signals', handleSignalFrame);
   stompClient.subscribe(`/topic/signals/${CURRENT_USER}`, handleSignalFrame);
   if (currentConversation) {
@@ -1875,6 +1906,8 @@ function connectWebSocket() {
     connectHeaders: {
       Authorization: `Bearer ${TOKEN}`,
     },
+    heartbeatIncoming: 10000,
+    heartbeatOutgoing: 10000,
     reconnectDelay: 5000,
     onConnect: onConnected,
     onWebSocketClose: () => {
@@ -2338,7 +2371,7 @@ async function init() {
   await loadConversations(false);
   connectWebSocket();
   if (!refreshIntervalId) {
-    refreshIntervalId = setInterval(() => loadConversations(true), 15000);
+    refreshIntervalId = setInterval(() => loadConversations(true), 5000);
   }
 }
 

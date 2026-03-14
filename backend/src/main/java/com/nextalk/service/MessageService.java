@@ -9,6 +9,7 @@ import java.nio.file.StandardCopyOption;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
 import java.util.UUID;
 import java.util.stream.Collectors;
@@ -118,6 +119,7 @@ public class MessageService {
             .map(ConversationParticipant::getUserId)
             .filter(id -> !id.equals(sender.getId()))
             .collect(Collectors.toList());
+        publishToRecipientQueues(recipientUserIds, dto);
         pushNotificationService.sendMessageNotificationToConversationParticipants(
             conversationId,
             sender.getDisplayName() != null ? sender.getDisplayName() : sender.getUsername(),
@@ -178,6 +180,7 @@ public class MessageService {
             .map(ConversationParticipant::getUserId)
             .filter(id -> !id.equals(sender.getId()))
             .collect(Collectors.toList());
+        publishToRecipientQueues(recipientUserIds, dto);
         pushNotificationService.sendMessageNotificationToConversationParticipants(
             conversationId,
             sender.getDisplayName() != null ? sender.getDisplayName() : sender.getUsername(),
@@ -213,6 +216,7 @@ public class MessageService {
             .map(ConversationParticipant::getUserId)
             .filter(id -> !id.equals(sender.getId()))
             .collect(Collectors.toList());
+        publishToRecipientQueues(recipientUserIds, dto);
         pushNotificationService.sendMessageNotificationToConversationParticipants(
             conversationId,
             sender.getDisplayName() != null ? sender.getDisplayName() : sender.getUsername(),
@@ -392,5 +396,30 @@ public class MessageService {
             return compact;
         }
         return compact.substring(0, 120);
+    }
+
+    private void publishToRecipientQueues(List<String> recipientUserIds, MessageDTO dto) {
+        if (recipientUserIds == null || recipientUserIds.isEmpty() || dto == null) {
+            return;
+        }
+
+        List<User> recipients = userRepository.findByIdIn(recipientUserIds);
+        if (recipients == null || recipients.isEmpty()) {
+            return;
+        }
+
+        Map<String, String> idToUsername = recipients.stream()
+            .filter(user -> user.getId() != null && user.getUsername() != null)
+            .collect(Collectors.toMap(User::getId, User::getUsername, (left, right) -> left));
+
+        recipientUserIds.stream()
+            .map(idToUsername::get)
+            .filter(username -> username != null && !username.isBlank())
+            .distinct()
+            .forEach(username -> messagingTemplate.convertAndSendToUser(
+                username,
+                "/queue/messages",
+                dto
+            ));
     }
 }
