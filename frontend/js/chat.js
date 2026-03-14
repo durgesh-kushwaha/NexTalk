@@ -1398,6 +1398,27 @@ async function markConversationRead() {
   }
 }
 
+async function runNativeFcmDiagnostics() {
+  if (!isNativeAppClient()) {
+    return;
+  }
+  try {
+    const debug = await api.get('/devices/fcm-debug');
+    if (!debug?.fcmReady) {
+      showToast('Push backend is not ready');
+      return;
+    }
+    const count = Number(debug?.tokenCount || 0);
+    if (count < 1) {
+      registerNativePushToken(true);
+      showToast('Re-registering push token...');
+      return;
+    }
+  } catch (error) {
+    showToast('Could not verify push diagnostics');
+  }
+}
+
 async function loadConversations(quiet) {
   try {
     const data = await api.get('/conversations');
@@ -2418,6 +2439,7 @@ async function init() {
   }
   applyTheme(localStorage.getItem(THEME_KEY) || 'dark');
   registerNativePushToken();
+  runNativeFcmDiagnostics();
   clearReplyTarget();
   syncNotificationControls();
   updateNotifyButton();

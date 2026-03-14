@@ -47,9 +47,12 @@ function resolveConfiguredBackendOrigin() {
     return '';
   }
 
+  const protocol = (window.location.protocol || '').toLowerCase();
   const host = window.location.hostname || '';
   const isLocalHost = host === 'localhost' || host === '127.0.0.1';
-  if (!isLocalHost) {
+
+  // Android WebView file:// pages need an explicit backend origin fallback.
+  if (protocol === 'file:') {
     return DEFAULT_PROD_BACKEND_ORIGIN;
   }
 

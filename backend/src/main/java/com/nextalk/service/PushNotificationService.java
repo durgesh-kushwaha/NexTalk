@@ -56,6 +56,21 @@ public class PushNotificationService {
 
     private FirebaseApp firebaseApp;
 
+    public boolean isFcmReady() {
+        return fcmEnabled && firebaseApp != null;
+    }
+
+    public int getRegisteredTokenCount(String username) {
+        if (username == null || username.isBlank()) {
+            return 0;
+        }
+        return userRepository.findByUsername(username)
+                .map(user -> user.getFcmTokens() == null ? 0 : (int) user.getFcmTokens().stream()
+                        .filter(token -> token != null && !token.isBlank())
+                        .count())
+                .orElse(0);
+    }
+
     @PostConstruct
     public void init() {
         if (!fcmEnabled) {

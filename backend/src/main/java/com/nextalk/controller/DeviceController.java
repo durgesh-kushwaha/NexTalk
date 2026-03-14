@@ -4,9 +4,11 @@ import com.nextalk.dto.RegisterFcmTokenRequest;
 import com.nextalk.service.PushNotificationService;
 import jakarta.validation.Valid;
 import org.springframework.beans.factory.annotation.Autowired;
+import java.util.Map;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.security.core.userdetails.UserDetails;
+import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
@@ -26,5 +28,19 @@ public class DeviceController {
     ) {
         pushNotificationService.registerToken(currentUser.getUsername(), request.getToken());
         return ResponseEntity.noContent().build();
+    }
+
+    @GetMapping("/fcm-debug")
+    public ResponseEntity<Map<String, Object>> getFcmDebug(
+            @AuthenticationPrincipal UserDetails currentUser
+    ) {
+        String username = currentUser.getUsername();
+        int tokenCount = pushNotificationService.getRegisteredTokenCount(username);
+        boolean ready = pushNotificationService.isFcmReady();
+        return ResponseEntity.ok(Map.of(
+                "username", username,
+                "fcmReady", ready,
+                "tokenCount", tokenCount
+        ));
     }
 }
