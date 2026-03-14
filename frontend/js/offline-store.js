@@ -9,6 +9,28 @@
   let dbPromise = null;
   const blobUrlMap = new Map();
 
+  function parseServerDate(value) {
+    if (!value) {
+      return null;
+    }
+    const raw = String(value).trim();
+    if (!raw) {
+      return null;
+    }
+    const hasTimezone = /([zZ]|[+-]\d{2}:?\d{2})$/.test(raw);
+    const normalized = hasTimezone ? raw : `${raw}Z`;
+    const date = new Date(normalized);
+    if (Number.isNaN(date.getTime())) {
+      return null;
+    }
+    return date;
+  }
+
+  function toEpochMs(value) {
+    const date = parseServerDate(value);
+    return date ? date.getTime() : 0;
+  }
+
   function openDb() {
     if (dbPromise) {
       return dbPromise;
@@ -107,8 +129,8 @@
     });
 
     return (conversations || []).sort((a, b) => {
-      const t1 = a.lastMessageAt ? new Date(a.lastMessageAt).getTime() : 0;
-      const t2 = b.lastMessageAt ? new Date(b.lastMessageAt).getTime() : 0;
+      const t1 = toEpochMs(a.lastMessageAt);
+      const t2 = toEpochMs(b.lastMessageAt);
       return t2 - t1;
     });
   }
@@ -156,8 +178,8 @@
     });
 
     const sorted = (raw || []).sort((a, b) => {
-      const t1 = a.sentAt ? new Date(a.sentAt).getTime() : 0;
-      const t2 = b.sentAt ? new Date(b.sentAt).getTime() : 0;
+      const t1 = toEpochMs(a.sentAt);
+      const t2 = toEpochMs(b.sentAt);
       return t1 - t2;
     });
 

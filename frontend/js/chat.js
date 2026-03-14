@@ -683,9 +683,33 @@ function closeAvatarViewer() {
   avatarViewer.classList.remove('open');
 }
 
+function parseServerDate(value) {
+  if (!value) {
+    return null;
+  }
+  const raw = String(value).trim();
+  if (!raw) {
+    return null;
+  }
+  const hasTimezone = /([zZ]|[+-]\d{2}:?\d{2})$/.test(raw);
+  const normalized = hasTimezone ? raw : `${raw}Z`;
+  const date = new Date(normalized);
+  if (Number.isNaN(date.getTime())) {
+    return null;
+  }
+  return date;
+}
+
+function toEpochMs(value) {
+  const date = parseServerDate(value);
+  return date ? date.getTime() : 0;
+}
+
 function formatTime(iso) {
-  if (!iso) return '';
-  const date = new Date(iso);
+  const date = parseServerDate(iso);
+  if (!date) {
+    return '';
+  }
   const now = new Date();
   const sameDay = date.toDateString() === now.toDateString();
   if (sameDay) {
@@ -695,10 +719,10 @@ function formatTime(iso) {
 }
 
 function formatDateTime(iso) {
-  if (!iso) {
+  const date = parseServerDate(iso);
+  if (!date) {
     return 'Not yet';
   }
-  const date = new Date(iso);
   return date.toLocaleString([], {
     month: 'short',
     day: 'numeric',
@@ -708,11 +732,8 @@ function formatDateTime(iso) {
 }
 
 function formatLastSeen(iso) {
-  if (!iso) {
-    return 'offline';
-  }
-  const date = new Date(iso);
-  if (Number.isNaN(date.getTime())) {
+  const date = parseServerDate(iso);
+  if (!date) {
     return 'offline';
   }
   return `last seen ${date.toLocaleString([], {
@@ -1123,8 +1144,8 @@ async function loadConversations(quiet) {
   try {
     const data = await api.get('/conversations');
     conversationsCache = data.sort((a, b) => {
-      const t1 = a.lastMessageAt ? new Date(a.lastMessageAt).getTime() : 0;
-      const t2 = b.lastMessageAt ? new Date(b.lastMessageAt).getTime() : 0;
+      const t1 = toEpochMs(a.lastMessageAt);
+      const t2 = toEpochMs(b.lastMessageAt);
       return t2 - t1;
     });
     await cacheConversationsOffline(conversationsCache);

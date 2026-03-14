@@ -1,9 +1,7 @@
 package com.nextalk.controller;
 
-import com.nextalk.dto.SendMessageRequest;
-import com.nextalk.dto.SignalMessage;
-import com.nextalk.service.MessageService;
-import com.nextalk.service.PushNotificationService;
+import java.security.Principal;
+
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.messaging.handler.annotation.DestinationVariable;
 import org.springframework.messaging.handler.annotation.MessageMapping;
@@ -11,7 +9,10 @@ import org.springframework.messaging.handler.annotation.Payload;
 import org.springframework.messaging.simp.SimpMessagingTemplate;
 import org.springframework.stereotype.Controller;
 
-import java.security.Principal;
+import com.nextalk.dto.SendMessageRequest;
+import com.nextalk.dto.SignalMessage;
+import com.nextalk.service.MessageService;
+import com.nextalk.service.PushNotificationService;
 
 @Controller
 public class SignalingController {
