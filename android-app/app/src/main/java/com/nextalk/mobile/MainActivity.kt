@@ -6,6 +6,8 @@ import android.app.NotificationChannel
 import android.app.NotificationManager
 import android.app.PendingIntent
 import android.content.Intent
+import android.media.AudioDeviceInfo
+import android.media.AudioManager
 import android.media.AudioAttributes
 import android.media.Ringtone
 import android.media.RingtoneManager
@@ -13,6 +15,8 @@ import android.content.pm.PackageManager
 import android.net.Uri
 import android.os.Build
 import android.os.Bundle
+import org.json.JSONArray
+import org.json.JSONObject
 import android.webkit.JavascriptInterface
 import android.webkit.CookieManager
 import android.webkit.PermissionRequest
@@ -36,6 +40,7 @@ class MainActivity : AppCompatActivity() {
     }
 
     private lateinit var webView: WebView
+    private lateinit var audioManager: AudioManager
     private var fileChooserCallback: ValueCallback<Array<Uri>>? = null
     private var pendingWebPermissionRequest: PermissionRequest? = null
     private var incomingRingtone: Ringtone? = null
@@ -72,6 +77,17 @@ class MainActivity : AppCompatActivity() {
         @JavascriptInterface
         fun isNotificationPermissionGranted(): Boolean {
             return hasNotificationPermission()
+        }
+
+        @JavascriptInterface
+        fun getAudioOutputDevices(): String {
+            return runCatching { buildAudioOutputDevicesJson() }.getOrDefault("[]")
+        }
+
+        @JavascriptInterface
+        fun setAudioOutputDevice(deviceId: String?): Boolean {
+            val id = deviceId?.toIntOrNull() ?: return false
+            return runCatching { setCommunicationAudioOutput(id) }.getOrDefault(false)
         }
     }
 
@@ -130,6 +146,8 @@ class MainActivity : AppCompatActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         setContentView(R.layout.activity_main)
+
+        audioManager = getSystemService(AudioManager::class.java)
 
         createNotificationChannels()
 
@@ -351,6 +369,117 @@ class MainActivity : AppCompatActivity() {
     private fun stopIncomingRingtoneInternal() {
         incomingRingtone?.stop()
         incomingRingtone = null
+    }
+
+    private fun buildAudioOutputDevicesJson(): String {
+        val devicesArray = JSONArray()
+        val outputs = getOutputDevices()
+        val selectedId = getSelectedOutputId(outputs)
+
+        outputs.forEach { device ->
+            val item = JSONObject()
+            item.put("id", device.id)
+            item.put("label", getOutputLabel(device))
+            item.put("kind", getOutputKind(device))
+            item.put("selected", device.id == selectedId)
+            devicesArray.put(item)
+        }
+
+        return devicesArray.toString()
+    }
+
+    private fun getOutputDevices(): List<AudioDeviceInfo> {
+        return if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+            audioManager.availableCommunicationDevices
+        } else {
+            audioManager.getDevices(AudioManager.GET_DEVICES_OUTPUTS).toList()
+        }
+    }
+
+    private fun getSelectedOutputId(outputs: List<AudioDeviceInfo>): Int {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+            return audioManager.communicationDevice?.id ?: outputs.firstOrNull()?.id ?: -1
+        }
+
+        if (audioManager.isBluetoothScoOn) {
+            return outputs.firstOrNull { isBluetoothType(it.type) }?.id ?: -1
+        }
+        if (audioManager.isSpeakerphoneOn) {
+            return outputs.firstOrNull { it.type == AudioDeviceInfo.TYPE_BUILTIN_SPEAKER }?.id ?: -1
+        }
+        return outputs.firstOrNull { it.type == AudioDeviceInfo.TYPE_BUILTIN_EARPIECE }?.id
+            ?: outputs.firstOrNull()?.id
+            ?: -1
+    }
+
+    private fun setCommunicationAudioOutput(deviceId: Int): Boolean {
+        val outputs = getOutputDevices()
+        val target = outputs.firstOrNull { it.id == deviceId } ?: return false
+
+        audioManager.mode = AudioManager.MODE_IN_COMMUNICATION
+
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+            return audioManager.setCommunicationDevice(target)
+        }
+
+        when {
+            target.type == AudioDeviceInfo.TYPE_BUILTIN_SPEAKER -> {
+                audioManager.stopBluetoothSco()
+                audioManager.isBluetoothScoOn = false
+                audioManager.isSpeakerphoneOn = true
+                return true
+            }
+
+            isBluetoothType(target.type) -> {
+                audioManager.isSpeakerphoneOn = false
+                audioManager.startBluetoothSco()
+                audioManager.isBluetoothScoOn = true
+                return true
+            }
+
+            else -> {
+                audioManager.stopBluetoothSco()
+                audioManager.isBluetoothScoOn = false
+                audioManager.isSpeakerphoneOn = false
+                return true
+            }
+        }
+    }
+
+    private fun getOutputLabel(device: AudioDeviceInfo): String {
+        val product = device.productName?.toString()?.trim().orEmpty()
+        if (product.isNotBlank()) {
+            return product
+        }
+        return when {
+            device.type == AudioDeviceInfo.TYPE_BUILTIN_SPEAKER -> "Speaker"
+            device.type == AudioDeviceInfo.TYPE_BUILTIN_EARPIECE -> "Phone"
+            device.type == AudioDeviceInfo.TYPE_WIRED_HEADSET || device.type == AudioDeviceInfo.TYPE_WIRED_HEADPHONES -> "Wired headset"
+            isBluetoothType(device.type) -> "Bluetooth"
+            else -> "Output"
+        }
+    }
+
+    private fun getOutputKind(device: AudioDeviceInfo): String {
+        return when {
+            device.type == AudioDeviceInfo.TYPE_BUILTIN_SPEAKER -> "speaker"
+            device.type == AudioDeviceInfo.TYPE_BUILTIN_EARPIECE -> "earpiece"
+            device.type == AudioDeviceInfo.TYPE_WIRED_HEADSET || device.type == AudioDeviceInfo.TYPE_WIRED_HEADPHONES -> "wired"
+            isBluetoothType(device.type) -> "bluetooth"
+            else -> "other"
+        }
+    }
+
+    private fun isBluetoothType(type: Int): Boolean {
+        if (type == AudioDeviceInfo.TYPE_BLUETOOTH_A2DP || type == AudioDeviceInfo.TYPE_BLUETOOTH_SCO) {
+            return true
+        }
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            return type == AudioDeviceInfo.TYPE_BLE_HEADSET ||
+                type == AudioDeviceInfo.TYPE_BLE_SPEAKER ||
+                type == AudioDeviceInfo.TYPE_BLE_BROADCAST
+        }
+        return false
     }
 
 }

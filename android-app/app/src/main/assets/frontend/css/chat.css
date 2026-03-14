@@ -1331,7 +1331,42 @@ body[data-theme='light'] #call-state-text {
   gap: 6px;
 }
 
+.audio-output-wrap {
+  min-width: 190px;
+  height: 40px;
+  border-radius: 999px;
+  border: 1px solid rgba(181, 214, 228, 0.42);
+  background: rgba(18, 53, 69, 0.86);
+  color: #d7ecf6;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 0 10px;
+}
+
+.audio-output-wrap select {
+  flex: 1;
+  min-width: 0;
+  border: 0;
+  outline: 0;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  font-size: 0.74rem;
+}
+
+.audio-output-wrap option {
+  color: #0f2a3a;
+}
+
 body[data-theme='light'] .call-controls button {
+  background: #edf6fc;
+  color: #3e6072;
+  border: 1px solid #c9dce8;
+  box-shadow: 0 4px 12px rgba(130, 171, 193, 0.18);
+}
+
+body[data-theme='light'] .audio-output-wrap {
   background: #edf6fc;
   color: #3e6072;
   border: 1px solid #c9dce8;
@@ -1568,6 +1603,13 @@ body[data-theme='light'] #btn-end-call {
     gap: 6px;
     display: grid;
     grid-template-columns: repeat(4, minmax(0, 1fr));
+  }
+
+  .audio-output-wrap {
+    grid-column: 1 / -1;
+    min-width: 0;
+    border-radius: 12px;
+    height: 36px;
   }
 
   .call-controls button {

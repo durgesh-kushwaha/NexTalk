@@ -18,6 +18,7 @@ class WebRTCManager {
     this.audioUnlocked = false;
     this.callPartnerDisplayName = null;
     this.callPartnerAvatarUrl = '';
+    this.selectedAudioOutputId = '';
 
     this.iceConfig = {
       iceServers: [
@@ -41,6 +42,8 @@ class WebRTCManager {
     this.audioCallAvatarFallback = document.getElementById('audio-call-avatar-fallback');
     this.btnToggleCamera = document.getElementById('btn-toggle-camera');
     this.btnSwitchCamera = document.getElementById('btn-switch-camera');
+    this.audioOutputWrap = document.getElementById('audio-output-wrap');
+    this.audioOutputSelect = document.getElementById('audio-output-select');
     this.requestTimeoutId = null;
     this.remoteAudio = new Audio();
     this.remoteAudio.autoplay = true;
@@ -54,6 +57,11 @@ class WebRTCManager {
     this.btnToggleCamera.addEventListener('click', () => this.handleThirdControl());
     this.btnSwitchCamera.addEventListener('click', () => this.switchCamera());
     document.getElementById('btn-end-call').addEventListener('click', () => this.endCall());
+    if (this.audioOutputSelect) {
+      this.audioOutputSelect.addEventListener('change', async (event) => {
+        await this.selectAudioOutput(event.target.value);
+      });
+    }
 
     const unlockAudio = () => {
       this.ensureRingtoneContext();
@@ -220,11 +228,154 @@ class WebRTCManager {
     if (this.isVideoCall) {
       this.setControlLabel('btn-toggle-camera', this.isCameraOff ? 'videocam_off' : 'videocam', this.isCameraOff ? 'Camera Off' : 'Camera');
       this.btnSwitchCamera.hidden = false;
+      if (this.audioOutputWrap) {
+        this.audioOutputWrap.hidden = true;
+      }
       return;
     }
 
     this.setControlLabel('btn-toggle-camera', this.isSpeakerOn ? 'volume_up' : 'hearing', this.isSpeakerOn ? 'Speaker On' : 'Speaker Off');
     this.btnSwitchCamera.hidden = true;
+    this.refreshAudioOutputOptions();
+  }
+
+  mapAudioOutputLabel(device) {
+    if (!device) {
+      return 'Output';
+    }
+    const label = String(device.label || '').trim();
+    if (label) {
+      return label;
+    }
+    const kind = String(device.kind || '').toLowerCase();
+    if (kind.includes('bluetooth') || kind.includes('bt')) {
+      return 'Bluetooth';
+    }
+    if (kind.includes('speaker')) {
+      return 'Speaker';
+    }
+    if (kind.includes('earpiece')) {
+      return 'Phone';
+    }
+    if (kind.includes('wired') || kind.includes('head')) {
+      return 'Wired headset';
+    }
+    return 'Output';
+  }
+
+  getAndroidOutputDevices() {
+    if (typeof window.AndroidBridge === 'undefined') {
+      return [];
+    }
+    if (typeof window.AndroidBridge.getAudioOutputDevices !== 'function') {
+      return [];
+    }
+    try {
+      const raw = window.AndroidBridge.getAudioOutputDevices();
+      if (!raw) {
+        return [];
+      }
+      const parsed = JSON.parse(raw);
+      if (!Array.isArray(parsed)) {
+        return [];
+      }
+      return parsed.map((item) => ({
+        id: String(item.id || ''),
+        label: this.mapAudioOutputLabel(item),
+        selected: !!item.selected,
+      })).filter((item) => !!item.id);
+    } catch (error) {
+      return [];
+    }
+  }
+
+  async getBrowserOutputDevices() {
+    if (!navigator.mediaDevices?.enumerateDevices) {
+      return [];
+    }
+    try {
+      const devices = await navigator.mediaDevices.enumerateDevices();
+      return devices
+        .filter((item) => item.kind === 'audiooutput')
+        .map((item, index) => ({
+          id: item.deviceId || `default-${index}`,
+          label: item.label || `Output ${index + 1}`,
+          selected: item.deviceId === this.selectedAudioOutputId,
+        }));
+    } catch (error) {
+      return [];
+    }
+  }
+
+  renderAudioOutputOptions(devices) {
+    if (!this.audioOutputWrap || !this.audioOutputSelect) {
+      return;
+    }
+    if (!devices.length) {
+      this.audioOutputWrap.hidden = true;
+      return;
+    }
+
+    this.audioOutputSelect.innerHTML = '';
+    devices.forEach((device) => {
+      const option = document.createElement('option');
+      option.value = String(device.id);
+      option.textContent = this.mapAudioOutputLabel(device);
+      this.audioOutputSelect.appendChild(option);
+    });
+
+    const selected = devices.find((item) => item.selected) || devices[0];
+    this.selectedAudioOutputId = selected.id;
+    this.audioOutputSelect.value = selected.id;
+    this.audioOutputWrap.hidden = false;
+  }
+
+  async refreshAudioOutputOptions() {
+    if (this.isVideoCall) {
+      if (this.audioOutputWrap) {
+        this.audioOutputWrap.hidden = true;
+      }
+      return;
+    }
+
+    const androidDevices = this.getAndroidOutputDevices();
+    if (androidDevices.length) {
+      this.renderAudioOutputOptions(androidDevices);
+      return;
+    }
+
+    const browserDevices = await this.getBrowserOutputDevices();
+    this.renderAudioOutputOptions(browserDevices);
+  }
+
+  async selectAudioOutput(deviceId) {
+    const target = String(deviceId || '').trim();
+    if (!target) {
+      return;
+    }
+
+    this.selectedAudioOutputId = target;
+
+    if (typeof window.AndroidBridge !== 'undefined' && typeof window.AndroidBridge.setAudioOutputDevice === 'function') {
+      try {
+        const applied = !!window.AndroidBridge.setAudioOutputDevice(target);
+        if (!applied) {
+          this.flash('Could not switch output');
+        }
+        return;
+      } catch (error) {
+        this.flash('Could not switch output');
+        return;
+      }
+    }
+
+    if (typeof this.remoteAudio.setSinkId === 'function') {
+      try {
+        await this.remoteAudio.setSinkId(target);
+      } catch (error) {
+        this.flash('Output selection not supported');
+      }
+    }
   }
 
   async applySpeakerMode() {
@@ -250,6 +401,10 @@ class WebRTCManager {
     try {
       await this.remoteAudio.play();
     } catch (error) {
+    }
+
+    if (this.selectedAudioOutputId) {
+      await this.selectAudioOutput(this.selectedAudioOutputId);
     }
   }
 
@@ -634,6 +789,7 @@ class WebRTCManager {
         this.remoteVideo.srcObject = null;
         this.remoteVideo.muted = true;
         this.remoteAudio.srcObject = this.remoteStream;
+        this.refreshAudioOutputOptions();
         this.applySpeakerMode();
       }
     };
@@ -715,6 +871,10 @@ class WebRTCManager {
     this.isCameraOff = false;
     this.isSpeakerOn = false;
     this.currentFacingMode = 'user';
+    this.selectedAudioOutputId = '';
+    if (this.audioOutputWrap) {
+      this.audioOutputWrap.hidden = true;
+    }
     this.applyCallModeClass();
     this.setControlLabel('btn-toggle-mute', 'mic', 'Mute');
     this.updateCallControlsForMode();
