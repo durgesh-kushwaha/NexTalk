@@ -12,6 +12,9 @@ import androidx.core.app.NotificationManagerCompat
 import androidx.core.content.ContextCompat
 import com.google.firebase.messaging.FirebaseMessagingService
 import com.google.firebase.messaging.RemoteMessage
+import java.net.HttpURLConnection
+import java.net.URL
+import org.json.JSONObject
 
 class NextalkFirebaseMessagingService : FirebaseMessagingService() {
 
@@ -35,6 +38,21 @@ class NextalkFirebaseMessagingService : FirebaseMessagingService() {
         val body = message.notification?.body ?: data["body"] ?: if (type == "call") "Someone is calling you" else "You have a new message"
 
         showNotification(type, title, body)
+    }
+
+    override fun onNewToken(token: String) {
+        super.onNewToken(token)
+        if (token.isBlank()) {
+            return
+        }
+
+        // Keep backend token mapping fresh even when app process is recreated in background.
+        val (authToken, backendOrigin) = MainActivity.loadPushRegistrationContext(applicationContext)
+        if (authToken.isBlank() || backendOrigin.isBlank()) {
+            return
+        }
+
+        postToken(backendOrigin.trimEnd('/'), authToken, token)
     }
 
     private fun ensureChannels() {
@@ -106,5 +124,32 @@ class NextalkFirebaseMessagingService : FirebaseMessagingService() {
         }
 
         NotificationManagerCompat.from(this).notify(notificationId, builder.build())
+    }
+
+    private fun postToken(baseOrigin: String, authToken: String, fcmToken: String) {
+        Thread {
+            var connection: HttpURLConnection? = null
+            try {
+                val url = URL("$baseOrigin/api/devices/fcm-token")
+                connection = (url.openConnection() as HttpURLConnection).apply {
+                    requestMethod = "POST"
+                    doOutput = true
+                    connectTimeout = 12000
+                    readTimeout = 12000
+                    setRequestProperty("Authorization", "Bearer $authToken")
+                    setRequestProperty("Content-Type", "application/json")
+                }
+
+                val payload = JSONObject().put("token", fcmToken).toString()
+                connection.outputStream.use { output ->
+                    output.write(payload.toByteArray(Charsets.UTF_8))
+                }
+
+                connection.responseCode
+            } catch (_: Exception) {
+            } finally {
+                connection?.disconnect()
+            }
+        }.start()
     }
 }

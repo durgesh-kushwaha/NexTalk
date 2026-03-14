@@ -440,7 +440,8 @@ function playNotificationTone(kind) {
 }
 
 function showDesktopNotification(title, body, tag, kind = 'message') {
-  if (!desktopNotificationsEnabled) {
+  const notificationsEnabled = hasAndroidBridge() ? true : desktopNotificationsEnabled;
+  if (!notificationsEnabled) {
     return;
   }
 
@@ -2289,6 +2290,14 @@ document.getElementById('logout-btn').addEventListener('click', () => {
 
 async function init() {
   await bootstrapOfflineStore();
+  if (isNativeAppClient()) {
+    desktopNotificationsEnabled = true;
+    messageSoundEnabled = true;
+    callSoundEnabled = true;
+    localStorage.setItem(NOTIF_DESKTOP_KEY, '1');
+    localStorage.setItem(NOTIF_MESSAGE_SOUND_KEY, '1');
+    localStorage.setItem(NOTIF_CALL_SOUND_KEY, '1');
+  }
   applyTheme(localStorage.getItem(THEME_KEY) || 'dark');
   registerNativePushToken();
   clearReplyTarget();

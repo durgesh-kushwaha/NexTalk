@@ -6,6 +6,7 @@ import android.app.NotificationChannel
 import android.app.NotificationManager
 import android.app.PendingIntent
 import android.content.Intent
+import android.content.Context
 import android.media.AudioDeviceInfo
 import android.media.AudioManager
 import android.media.AudioAttributes
@@ -44,8 +45,18 @@ class MainActivity : AppCompatActivity() {
     companion object {
         private const val CHANNEL_MESSAGES = "nextalk_messages"
         private const val CHANNEL_CALLS = "nextalk_calls"
+        private const val PREFS_NAME = "nextalk_push_prefs"
+        private const val PREF_AUTH_TOKEN = "auth_token"
+        private const val PREF_BACKEND_ORIGIN = "backend_origin"
         @Volatile
         var isAppInForeground: Boolean = false
+
+        fun loadPushRegistrationContext(context: Context): Pair<String, String> {
+            val prefs = context.getSharedPreferences(PREFS_NAME, MODE_PRIVATE)
+            val token = prefs.getString(PREF_AUTH_TOKEN, "") ?: ""
+            val origin = prefs.getString(PREF_BACKEND_ORIGIN, "") ?: ""
+            return Pair(token, origin)
+        }
     }
 
     private lateinit var webView: WebView
@@ -120,6 +131,12 @@ class MainActivity : AppCompatActivity() {
             if (tokenValue.isBlank() || originValue.isBlank()) {
                 return
             }
+
+            getSharedPreferences(PREFS_NAME, MODE_PRIVATE)
+                .edit()
+                .putString(PREF_AUTH_TOKEN, tokenValue)
+                .putString(PREF_BACKEND_ORIGIN, originValue)
+                .apply()
 
             FirebaseMessaging.getInstance().token
                 .addOnSuccessListener { fcmToken ->
@@ -412,7 +429,7 @@ class MainActivity : AppCompatActivity() {
         val messageChannel = NotificationChannel(
             CHANNEL_MESSAGES,
             "NexTalk Messages",
-            NotificationManager.IMPORTANCE_DEFAULT
+            NotificationManager.IMPORTANCE_HIGH
         ).apply {
             description = "Message notifications"
             enableVibration(true)
