@@ -74,8 +74,13 @@
             </div>
             <button class="ghost-btn icon-btn" id="reply-cancel-btn" title="Cancel reply"><span class="material-symbols-rounded">close</span></button>
           </div>
-          <button id="attach-image-btn" class="attach-btn icon-btn" title="Send image"><span class="material-symbols-rounded">image</span></button>
+          <div class="composer-actions">
+            <button id="attach-image-btn" class="attach-btn icon-btn" title="Send image"><span class="material-symbols-rounded">image</span></button>
+            <button id="attach-video-btn" class="attach-btn icon-btn app-only-control" title="Send video" hidden><span class="material-symbols-rounded">video_library</span></button>
+            <button id="attach-contact-btn" class="attach-btn icon-btn app-only-control" title="Send contact" hidden><span class="material-symbols-rounded">contacts</span></button>
+          </div>
           <input id="image-input" type="file" accept="image/*" hidden />
+          <input id="video-input" type="file" accept="video/*" hidden />
           <textarea id="message-input" rows="1" placeholder="Write a message"></textarea>
           <button id="send-btn">Send</button>
         </div>

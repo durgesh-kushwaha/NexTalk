@@ -7,6 +7,7 @@ const NOTIF_DESKTOP_KEY = 'nextalk_notif_desktop';
 const NOTIF_MESSAGE_SOUND_KEY = 'nextalk_notif_message_sound';
 const NOTIF_CALL_SOUND_KEY = 'nextalk_notif_call_sound';
 const MAX_IMAGE_FILE_SIZE = 5 * 1024 * 1024;
+const MAX_VIDEO_FILE_SIZE = 25 * 1024 * 1024;
 const BACKEND_ORIGIN = typeof getNextalkBackendOrigin === 'function'
   ? getNextalkBackendOrigin().replace(/\/$/, '')
   : 'http://localhost:8080';
@@ -69,7 +70,10 @@ const messagesContainer = document.getElementById('messages-container');
 const messageInput = document.getElementById('message-input');
 const sendBtn = document.getElementById('send-btn');
 const attachImageBtn = document.getElementById('attach-image-btn');
+const attachVideoBtn = document.getElementById('attach-video-btn');
+const attachContactBtn = document.getElementById('attach-contact-btn');
 const imageInput = document.getElementById('image-input');
+const videoInput = document.getElementById('video-input');
 const newChatModal = document.getElementById('new-chat-modal');
 const userSearchInput = document.getElementById('user-search-input');
 const userSearchResults = document.getElementById('user-search-results');
@@ -138,6 +142,37 @@ function isAway() {
 
 function hasAndroidBridge() {
   return typeof window.AndroidBridge !== 'undefined';
+}
+
+function isNativeAppClient() {
+  return hasAndroidBridge();
+}
+
+function formatFileSize(bytes) {
+  const size = Number(bytes || 0);
+  if (!size || size < 1024) {
+    return `${size || 0} B`;
+  }
+  if (size < 1024 * 1024) {
+    return `${(size / 1024).toFixed(1)} KB`;
+  }
+  return `${(size / (1024 * 1024)).toFixed(1)} MB`;
+}
+
+function createLocalMessage(type, payload) {
+  const sentAt = new Date().toISOString();
+  return {
+    id: `local-${type.toLowerCase()}-${Date.now()}-${Math.floor(Math.random() * 100000)}`,
+    type,
+    localOnly: true,
+    sentAt,
+    sender: {
+      id: USER_ID || '',
+      username: CURRENT_USER || '',
+      displayName: DISPLAY_NAME || CURRENT_USER || 'Me',
+    },
+    ...payload,
+  };
 }
 
 function isAndroidNotificationsGranted() {
@@ -531,6 +566,28 @@ async function resolveCachedImageBlob(url) {
     return await offlineStore.getCachedImageBlob(url);
   } catch (error) {
     return null;
+  }
+}
+
+async function storeLocalFile(file) {
+  if (!offlineReady() || !file || !offlineStore.saveLocalFile) {
+    return '';
+  }
+  try {
+    return await offlineStore.saveLocalFile(file);
+  } catch (error) {
+    return '';
+  }
+}
+
+async function getLocalFileUrl(fileId) {
+  if (!offlineReady() || !fileId || !offlineStore.getLocalFileUrl) {
+    return '';
+  }
+  try {
+    return await offlineStore.getLocalFileUrl(fileId);
+  } catch (error) {
+    return '';
   }
 }
 
@@ -1120,6 +1177,31 @@ function renderMessageContent(message) {
   if (message.deletedForEveryone) {
     return escapeHtml('This message was deleted');
   }
+
+  if (message.type === 'VIDEO' || message.type === 'VIDEO_LOCAL') {
+    const fileName = escapeHtml(message.localFileName || message.content || 'Video file');
+    const sizeLabel = message.localFileSize ? ` (${escapeHtml(formatFileSize(message.localFileSize))})` : '';
+    const note = isNativeAppClient() ? 'Preparing local video...' : 'Use app to see video file';
+    return `
+      <div class="local-media-card" data-local-file-id="${escapeHtml(message.localFileId || '')}" data-local-kind="video">
+        <strong>${fileName}${sizeLabel}</strong>
+        <video class="local-video-message" controls playsinline hidden></video>
+        <div class="local-media-note">${escapeHtml(note)}</div>
+      </div>
+    `;
+  }
+
+  if (message.type === 'CONTACT_LOCAL') {
+    const contactName = escapeHtml(message.contactName || 'Contact');
+    const contactPhone = escapeHtml(message.contactPhone || 'No number');
+    return `
+      <div class="local-media-card local-contact-card">
+        <strong>${contactName}</strong>
+        <div>${contactPhone}</div>
+      </div>
+    `;
+  }
+
   if (message.type === 'IMAGE') {
     const src = resolveMediaUrl(message.content || '');
     if (!src) {
@@ -1184,10 +1266,48 @@ function appendMessage(message, smooth) {
     }
   }
 
+  if (message.type === 'VIDEO_LOCAL' || message.type === 'VIDEO') {
+    hydrateLocalVideoCard(bubble, message);
+  }
+
   messagesContainer.scrollTo({
     top: messagesContainer.scrollHeight,
     behavior: smooth ? 'smooth' : 'auto',
   });
+}
+
+async function hydrateLocalVideoCard(bubble, message) {
+  if (!bubble || !message || !isNativeAppClient()) {
+    return;
+  }
+  const mediaCard = bubble.querySelector('.local-media-card[data-local-kind="video"]');
+  const videoEl = mediaCard?.querySelector('.local-video-message');
+  const noteEl = mediaCard?.querySelector('.local-media-note');
+  if (!mediaCard || !videoEl) {
+    return;
+  }
+
+  const fileId = message.localFileId || mediaCard.getAttribute('data-local-file-id') || '';
+  if (!fileId) {
+    if (noteEl) {
+      noteEl.textContent = 'Use app to see video file';
+    }
+    return;
+  }
+
+  const localUrl = await getLocalFileUrl(fileId);
+  if (!localUrl) {
+    if (noteEl) {
+      noteEl.textContent = 'Video not available on this device';
+    }
+    return;
+  }
+
+  videoEl.src = localUrl;
+  videoEl.hidden = false;
+  if (noteEl) {
+    noteEl.textContent = 'Stored on this device';
+  }
 }
 
 async function openConversation(conversation) {
@@ -1291,6 +1411,71 @@ async function sendImageMessage(file) {
   } catch (error) {
     showToast(error.message || 'Failed to send image');
   }
+}
+
+async function sendLocalVideoMessage(file) {
+  if (!isNativeAppClient()) {
+    showToast('Video send is available only in app');
+    return;
+  }
+  if (!currentConversation) {
+    showToast('Pick a conversation first');
+    return;
+  }
+  if (!file || !file.type || !file.type.startsWith('video/')) {
+    showToast('Only video files are allowed');
+    return;
+  }
+  if (file.size > MAX_VIDEO_FILE_SIZE) {
+    showToast('Video exceeds 25MB limit');
+    return;
+  }
+
+  const localFileId = await storeLocalFile(file);
+  if (!localFileId) {
+    showToast('Could not save video locally');
+    return;
+  }
+
+  const message = createLocalMessage('VIDEO_LOCAL', {
+    content: file.name,
+    localFileId,
+    localFileName: file.name,
+    localFileSize: file.size,
+  });
+
+  appendMessage(message, true);
+  showToast('Video saved locally in app chat');
+}
+
+async function sendLocalContactMessage() {
+  if (!isNativeAppClient()) {
+    showToast('Contact share is available only in app');
+    return;
+  }
+  if (!currentConversation) {
+    showToast('Pick a conversation first');
+    return;
+  }
+
+  const contactName = (window.prompt('Contact name', '') || '').trim();
+  if (!contactName) {
+    return;
+  }
+  const contactPhone = (window.prompt('Contact phone number', '') || '').trim();
+  if (!contactPhone) {
+    showToast('Phone number is required');
+    return;
+  }
+
+  const message = createLocalMessage('CONTACT_LOCAL', {
+    content: `${contactName} (${contactPhone})`,
+    contactName,
+    contactPhone,
+  });
+
+  appendMessage(message, true);
+  showToast('Contact shared locally in app chat');
 }
 
 async function searchUsers(query) {
@@ -1714,6 +1899,30 @@ if (attachImageBtn && imageInput) {
   });
 }
 
+if (attachVideoBtn && videoInput) {
+  attachVideoBtn.addEventListener('click', () => {
+    if (!currentConversation) {
+      showToast('Pick a conversation first');
+      return;
+    }
+    videoInput.click();
+  });
+
+  videoInput.addEventListener('change', async () => {
+    const file = videoInput.files && videoInput.files[0];
+    if (file) {
+      await sendLocalVideoMessage(file);
+    }
+    videoInput.value = '';
+  });
+}
+
+if (attachContactBtn) {
+  attachContactBtn.addEventListener('click', async () => {
+    await sendLocalContactMessage();
+  });
+}
+
 messageInput.addEventListener('input', autoResize);
 messageInput.addEventListener('input', onLocalComposerInput);
 messageInput.addEventListener('keydown', (event) => {
@@ -1757,6 +1966,14 @@ async function init() {
   if (CURRENT_USER && CURRENT_USER.toLowerCase() === 'durgesh') {
     adminBtn.style.display = 'inline-flex';
   }
+
+  if (attachVideoBtn) {
+    attachVideoBtn.hidden = !isNativeAppClient();
+  }
+  if (attachContactBtn) {
+    attachContactBtn.hidden = !isNativeAppClient();
+  }
+
   setCallButtonsEnabled(false);
   applySidebarModeFromStorage();
   if (!USER_ID) {

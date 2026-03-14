@@ -666,6 +666,37 @@ body[data-theme='light'] .message-status.read {
   border: 1px solid rgba(255, 255, 255, 0.18);
 }
 
+.local-media-card {
+  min-width: 220px;
+  border: 1px solid rgba(181, 219, 203, 0.28);
+  border-radius: 12px;
+  padding: 8px;
+  background: rgba(8, 31, 24, 0.36);
+  display: grid;
+  gap: 6px;
+}
+
+.local-media-card strong {
+  font-size: 0.78rem;
+}
+
+.local-media-note {
+  font-size: 0.72rem;
+  color: var(--muted);
+}
+
+.local-video-message {
+  width: min(62vw, 300px);
+  max-height: 220px;
+  border-radius: 10px;
+  background: #000;
+}
+
+.local-contact-card {
+  font-size: 0.82rem;
+  line-height: 1.4;
+}
+
 .bubble-meta {
   font-size: 0.64rem;
   color: rgba(228, 240, 245, 0.72);
@@ -679,9 +710,13 @@ body[data-theme='light'] .bubble-meta {
   border-top: 1px solid var(--line);
   padding: 13px;
   display: grid;
-  grid-template-columns: 40px 1fr auto;
+  grid-template-columns: auto 1fr auto;
   gap: 10px;
   background: rgba(10, 21, 29, 0.96);
+}
+.composer-actions {
+  display: inline-flex;
+  gap: 8px;
 }
 
 .reply-strip {
@@ -1274,8 +1309,8 @@ body[data-theme='light'] #reject-call-btn {
   position: absolute;
   right: 18px;
   top: 18px;
-  width: clamp(120px, 18vw, 210px);
-  aspect-ratio: 9 / 16;
+  width: clamp(220px, 26vw, 360px);
+  aspect-ratio: 16 / 9;
   border-radius: 12px;
   object-fit: cover;
   border: 1px solid rgba(255, 255, 255, 0.16);
@@ -1550,7 +1585,11 @@ body[data-theme='light'] #btn-end-call {
 
   .composer {
     padding: 10px 10px max(10px, var(--safe-bottom));
-    grid-template-columns: 36px 1fr 72px;
+    grid-template-columns: auto 1fr 72px;
+  }
+
+  .composer-actions {
+    gap: 6px;
   }
 
   .composer button:not(.attach-btn) {

@@ -1,9 +1,10 @@
 (function () {
   const DB_NAME = 'nextalk-offline-v1';
-  const DB_VERSION = 1;
+  const DB_VERSION = 2;
   const CONVERSATIONS_STORE = 'conversations';
   const MESSAGES_STORE = 'messages';
   const IMAGES_STORE = 'images';
+  const LOCAL_FILES_STORE = 'localFiles';
 
   let dbPromise = null;
   const blobUrlMap = new Map();
@@ -30,6 +31,10 @@
 
         if (!db.objectStoreNames.contains(IMAGES_STORE)) {
           db.createObjectStore(IMAGES_STORE, { keyPath: 'url' });
+        }
+
+        if (!db.objectStoreNames.contains(LOCAL_FILES_STORE)) {
+          db.createObjectStore(LOCAL_FILES_STORE, { keyPath: 'id' });
         }
       };
 
@@ -215,6 +220,58 @@
     return blobUrl;
   }
 
+  async function saveLocalFile(file) {
+    if (!file) {
+      return '';
+    }
+    const id = `file-${Date.now()}-${Math.floor(Math.random() * 100000)}`;
+
+    await withStore(LOCAL_FILES_STORE, 'readwrite', (store) => {
+      store.put({
+        id,
+        blob: file,
+        name: file.name || 'file',
+        type: file.type || 'application/octet-stream',
+        size: Number(file.size || 0),
+        cachedAt: Date.now(),
+      });
+    });
+
+    return id;
+  }
+
+  async function getLocalFileBlob(fileId) {
+    const key = String(fileId || '').trim();
+    if (!key) {
+      return null;
+    }
+
+    const result = await withStore(LOCAL_FILES_STORE, 'readonly', async (store) => {
+      return await awaitRequest(store.get(key));
+    });
+
+    return result?.blob || null;
+  }
+
+  async function getLocalFileUrl(fileId) {
+    const key = String(fileId || '').trim();
+    if (!key) {
+      return '';
+    }
+    if (blobUrlMap.has(key)) {
+      return blobUrlMap.get(key);
+    }
+
+    const blob = await getLocalFileBlob(key);
+    if (!blob) {
+      return '';
+    }
+
+    const blobUrl = URL.createObjectURL(blob);
+    blobUrlMap.set(key, blobUrl);
+    return blobUrl;
+  }
+
   window.nextalkOfflineStore = {
     init: openDb,
     saveConversations,
@@ -225,5 +282,8 @@
     cacheImageFromUrl,
     getCachedImageBlob,
     getCachedImageUrl,
+    saveLocalFile,
+    getLocalFileBlob,
+    getLocalFileUrl,
   };
 })();
