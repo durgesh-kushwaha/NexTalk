@@ -18,6 +18,9 @@
   --bubble-me: #1f97ad;
   --bubble-them: #153545;
   --danger: #f55757;
+  --safe-top: env(safe-area-inset-top, 0px);
+  --safe-right: env(safe-area-inset-right, 0px);
+  --safe-bottom: env(safe-area-inset-bottom, 0px);
 }
 
 body[data-theme='light'] {
@@ -165,8 +168,8 @@ body[data-theme='light'] .sidebar {
 
 #new-chat-btn {
   position: fixed;
-  right: calc(16px + env(safe-area-inset-right));
-  bottom: calc(18px + env(safe-area-inset-bottom));
+  right: calc(16px + var(--safe-right));
+  bottom: calc(18px + var(--safe-bottom));
   width: 56px;
   height: 56px;
   border-radius: 999px;
@@ -356,12 +359,12 @@ body[data-theme='light'] .material-symbols-rounded {
 }
 
 .chat-header {
-  height: 72px;
+  height: calc(72px + var(--safe-top));
   border-bottom: 1px solid var(--line);
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: 0 20px;
+  padding: var(--safe-top) 20px 0;
   background: linear-gradient(180deg, rgba(17, 31, 41, 0.94), rgba(12, 24, 33, 0.94));
 }
 
@@ -590,12 +593,14 @@ body[data-theme='light'] .message-bubble.received {
 }
 
 .reply-chip {
-  border-left: 3px solid rgba(255, 255, 255, 0.45);
+  border-left: 3px solid rgba(37, 211, 102, 0.95);
   padding-left: 8px;
   margin-bottom: 4px;
   display: grid;
   gap: 2px;
   font-size: 0.74rem;
+  background: rgba(8, 33, 44, 0.2);
+  border-radius: 6px;
 }
 
 .reply-chip strong {
@@ -861,7 +866,7 @@ body[data-theme='light'] .conversation-item.active {
 .toast {
   position: fixed;
   left: 50%;
-  bottom: 24px;
+  bottom: calc(18px + var(--safe-bottom));
   transform: translate(-50%, 30px);
   opacity: 0;
   pointer-events: none;
@@ -901,8 +906,8 @@ body[data-theme='light'] .conversation-item.active {
 
 .notif-sheet {
   position: fixed;
-  right: 14px;
-  top: 84px;
+  right: calc(14px + var(--safe-right));
+  top: calc(84px + var(--safe-top));
   width: min(280px, 92vw);
   border: 1px solid var(--line);
   border-radius: 14px;
@@ -1115,8 +1120,8 @@ body[data-theme='light'] .msg-sheet-btn {
 
 .call-notification {
   position: fixed;
-  right: 18px;
-  top: 18px;
+  right: calc(14px + var(--safe-right));
+  top: calc(14px + var(--safe-top));
   width: 270px;
   border-radius: 12px;
   padding: 12px;
@@ -1462,8 +1467,8 @@ body[data-theme='light'] #btn-end-call {
   }
 
   #new-chat-btn {
-    right: calc(12px + env(safe-area-inset-right));
-    bottom: calc(14px + env(safe-area-inset-bottom));
+    right: calc(12px + var(--safe-right));
+    bottom: calc(14px + var(--safe-bottom));
     width: 54px;
     height: 54px;
   }
@@ -1472,9 +1477,9 @@ body[data-theme='light'] #btn-end-call {
     position: sticky;
     top: 0;
     z-index: 14;
-    padding: max(0px, env(safe-area-inset-top)) 10px 0;
+    padding: var(--safe-top) 10px 0;
     gap: 10px;
-    height: 64px;
+    height: calc(64px + var(--safe-top));
   }
 
   .chat-view {
@@ -1509,7 +1514,7 @@ body[data-theme='light'] #btn-end-call {
   }
 
   .composer {
-    padding: 10px 10px max(10px, env(safe-area-inset-bottom));
+    padding: 10px 10px max(10px, var(--safe-bottom));
     grid-template-columns: 36px 1fr 72px;
   }
 
@@ -1558,7 +1563,7 @@ body[data-theme='light'] #btn-end-call {
     right: 0;
     transform: none;
     width: 100%;
-    padding: 0 8px max(10px, env(safe-area-inset-bottom));
+    padding: 0 8px max(10px, var(--safe-bottom));
     bottom: 0;
     gap: 6px;
     display: grid;

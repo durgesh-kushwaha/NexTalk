@@ -37,6 +37,15 @@ let callSoundEnabled = localStorage.getItem(NOTIF_CALL_SOUND_KEY) !== '0';
 const conversationSnapshot = new Map();
 const messageSnapshot = new Map();
 const MOBILE_BREAKPOINT = 860;
+const TYPING_IDLE_TIMEOUT_MS = 1400;
+const TYPING_STATUS_TIMEOUT_MS = 1800;
+
+const recentNotificationMap = new Map();
+
+let chatStatusBaseText = 'offline';
+let typingStatusTimer = null;
+let typingIdleTimer = null;
+let isTypingBroadcasted = false;
 
 const sidebar = document.getElementById('sidebar');
 const appShell = document.querySelector('.app-shell');
@@ -242,6 +251,15 @@ function showDesktopNotification(title, body, tag, kind = 'message') {
 function notifyIncomingMessage(conversation, message) {
   const title = getConversationName(conversation);
   const content = message || 'New message';
+  const key = `msg:${conversation?.id || 'unknown'}`;
+  const signature = `${title}|${content}`;
+  const now = Date.now();
+  const previous = recentNotificationMap.get(key);
+  if (previous && previous.signature === signature && (now - previous.at) < 2500) {
+    return;
+  }
+  recentNotificationMap.set(key, { signature, at: now });
+
   showDesktopNotification(title, content, `msg-${conversation.id}`, 'message');
   if (messageSoundEnabled) {
     playNotificationTone('message');
@@ -249,22 +267,123 @@ function notifyIncomingMessage(conversation, message) {
 }
 
 function notifyIncomingCall(fromUsername, isVideo) {
-  showDesktopNotification(fromUsername || 'Incoming call', isVideo ? 'Incoming video call' : 'Incoming audio call', `call-${fromUsername || 'incoming'}`, 'call');
-  if (callSoundEnabled) {
-    playNotificationTone('call');
+  const key = `call:${String(fromUsername || 'incoming').toLowerCase()}`;
+  const signature = isVideo ? 'video' : 'audio';
+  const now = Date.now();
+  const previous = recentNotificationMap.get(key);
+  if (previous && previous.signature === signature && (now - previous.at) < 4000) {
+    return;
   }
+  recentNotificationMap.set(key, { signature, at: now });
+
+  showDesktopNotification(fromUsername || 'Incoming call', isVideo ? 'Incoming video call' : 'Incoming audio call', `call-${fromUsername || 'incoming'}`, 'call');
 }
 
 function snapshotConversationActivity(items) {
   items.forEach((item) => {
     const marker = `${item.lastMessageAt || ''}|${item.lastMessage || ''}`;
-    const prev = conversationSnapshot.get(item.id);
-    const isCurrent = currentConversation && currentConversation.id === item.id;
-    if (prev && prev !== marker && (!isCurrent || isAway())) {
-      notifyIncomingMessage(item, item.lastMessage || 'New message');
-    }
     conversationSnapshot.set(item.id, marker);
   });
+}
+
+function isCurrentConversationPrivateWithPartner(username) {
+  if (!currentConversation || currentConversation.type !== 'PRIVATE') {
+    return false;
+  }
+  const partner = getConversationPartner(currentConversation);
+  return String(partner?.username || '').toLowerCase() === String(username || '').toLowerCase();
+}
+
+function setChatStatusBase(text) {
+  chatStatusBaseText = text || 'offline';
+  if (!typingStatusTimer) {
+    chatStatus.textContent = chatStatusBaseText;
+  }
+}
+
+function showTypingStatus(username) {
+  if (!isCurrentConversationPrivateWithPartner(username)) {
+    return;
+  }
+  if (typingStatusTimer) {
+    clearTimeout(typingStatusTimer);
+  }
+  chatStatus.textContent = 'typing...';
+  typingStatusTimer = setTimeout(() => {
+    typingStatusTimer = null;
+    chatStatus.textContent = chatStatusBaseText;
+  }, TYPING_STATUS_TIMEOUT_MS);
+}
+
+function clearTypingStatus() {
+  if (typingStatusTimer) {
+    clearTimeout(typingStatusTimer);
+    typingStatusTimer = null;
+  }
+  chatStatus.textContent = chatStatusBaseText;
+}
+
+function sendTypingSignal(type) {
+  if (!stompClient?.connected || !currentConversation || currentConversation.type !== 'PRIVATE') {
+    return;
+  }
+  const partner = getConversationPartner(currentConversation);
+  if (!partner?.username) {
+    return;
+  }
+  sendSignal({
+    type,
+    toUsername: partner.username,
+    data: currentConversation.id,
+  });
+}
+
+function queueTypingStopSignal() {
+  if (typingIdleTimer) {
+    clearTimeout(typingIdleTimer);
+  }
+  typingIdleTimer = setTimeout(() => {
+    if (!isTypingBroadcasted) {
+      return;
+    }
+    sendTypingSignal('TYPING_STOP');
+    isTypingBroadcasted = false;
+  }, TYPING_IDLE_TIMEOUT_MS);
+}
+
+function onLocalComposerInput() {
+  if (!currentConversation || currentConversation.type !== 'PRIVATE') {
+    return;
+  }
+  const hasText = !!messageInput.value.trim();
+  if (!hasText) {
+    if (isTypingBroadcasted) {
+      sendTypingSignal('TYPING_STOP');
+      isTypingBroadcasted = false;
+    }
+    if (typingIdleTimer) {
+      clearTimeout(typingIdleTimer);
+      typingIdleTimer = null;
+    }
+    return;
+  }
+  if (!isTypingBroadcasted) {
+    sendTypingSignal('TYPING_START');
+    isTypingBroadcasted = true;
+  }
+  queueTypingStopSignal();
+}
+
+function stopLocalTyping() {
+  if (typingIdleTimer) {
+    clearTimeout(typingIdleTimer);
+    typingIdleTimer = null;
+  }
+  if (!isTypingBroadcasted) {
+    return;
+  }
+  sendTypingSignal('TYPING_STOP');
+  isTypingBroadcasted = false;
 }
 
 function applyTheme(theme) {
@@ -826,12 +945,12 @@ function setChatHeader(conversation) {
   setAvatarVisual(chatAvatar, title, activeChatAvatarUrl);
   chatPartnerName.textContent = title;
   if (conversation.type === 'GROUP') {
-    chatStatus.textContent = `${conversation.participants?.length || 0} members`;
+    setChatStatusBase(`${conversation.participants?.length || 0} members`);
     activeChatAvatarUrl = '';
     setAvatarVisual(chatAvatar, title, '');
   } else {
     const online = partner?.status === 'ONLINE';
-    chatStatus.textContent = online ? 'online' : 'offline';
+    setChatStatusBase(online ? 'online' : 'offline');
   }
   updateCallButtonsState();
   if (window.webRTC) {
@@ -853,6 +972,10 @@ function subscribeConversation(conversationId) {
   }
   activeSubscription = stompClient.subscribe(`/topic/conversation/${conversationId}`, (frame) => {
     const message = JSON.parse(frame.body);
+    const messageFrom = String(message.sender?.username || '').toLowerCase();
+    if (messageFrom && messageFrom !== String(CURRENT_USER || '').toLowerCase()) {
+      clearTypingStatus();
+    }
     appendMessage(message, true);
     const senderId = message.sender?.id || '';
     const senderUsername = String(message.sender?.username || '').toLowerCase();
@@ -927,6 +1050,8 @@ function appendMessage(message, smooth) {
 }
 
 async function openConversation(conversation) {
+  stopLocalTyping();
+  clearTypingStatus();
   currentConversation = conversation;
   clearReplyTarget();
   if (isMobileScreen()) {
@@ -971,6 +1096,7 @@ async function sendMessage() {
   messageInput.value = '';
   autoResize();
   clearReplyTarget();
+  stopLocalTyping();
 
   if (stompClient?.connected) {
     stompClient.publish({
@@ -1065,12 +1191,19 @@ function onConnected() {
     if (window.webRTC) {
       window.webRTC.handleSignal(signal);
     }
+    if (signal.type === 'TYPING_START') {
+      showTypingStatus(signal.fromUsername);
+      return;
+    }
+    if (signal.type === 'TYPING_STOP') {
+      clearTypingStatus();
+      return;
+    }
     if (signal.type === 'CALL_REQUEST' && isAway()) {
       notifyIncomingCall(signal.fromUsername, !!signal.videoEnabled);
     }
   };
   stompClient.subscribe('/user/queue/signals', handleSignalFrame);
-  stompClient.subscribe(`/topic/signals/${CURRENT_USER}`, handleSignalFrame);
   if (currentConversation) {
     subscribeConversation(currentConversation.id);
   }
@@ -1416,6 +1549,7 @@ if (attachImageBtn && imageInput) {
 }
 
 messageInput.addEventListener('input', autoResize);
+messageInput.addEventListener('input', onLocalComposerInput);
 messageInput.addEventListener('keydown', (event) => {
   if (event.key === 'Enter' && !event.shiftKey) {
     event.preventDefault();
@@ -1434,6 +1568,7 @@ document.getElementById('btn-video-call').addEventListener('click', () => {
 });
 
 document.getElementById('logout-btn').addEventListener('click', () => {
+  stopLocalTyping();
   if (stompClient) {
     stompClient.deactivate();
   }

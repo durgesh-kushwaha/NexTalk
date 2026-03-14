@@ -35,6 +35,10 @@ public class SignalMessage {
 
         ICE_CANDIDATE,
 
+        TYPING_START,
+
+        TYPING_STOP,
+
         CALL_ENDED
     }
 }
