@@ -529,13 +529,6 @@ function notifyIncomingMessage(conversation, message) {
 }
 
 function notifyIncomingCall(fromUsername, isVideo) {
-  if (hasAndroidBridge()) {
-    if (!isAndroidNotificationsGranted() && callSoundEnabled) {
-      showToast(`${fromUsername || 'Incoming call'} (${isVideo ? 'video' : 'audio'})`);
-      playNotificationTone('call');
-    }
-    return;
-  }
   const key = `call:${String(fromUsername || 'incoming').toLowerCase()}`;
   const signature = isVideo ? 'video' : 'audio';
   const now = Date.now();
@@ -545,6 +538,19 @@ function notifyIncomingCall(fromUsername, isVideo) {
   }
   recentNotificationMap.set(key, { signature, at: now });
 
+  if (hasAndroidBridge()) {
+    showDesktopNotification(
+      fromUsername || 'Incoming call',
+      isVideo ? 'Incoming video call' : 'Incoming audio call',
+      `call-${fromUsername || 'incoming'}`,
+      'call'
+    );
+    if (!isAndroidNotificationsGranted() && callSoundEnabled) {
+      showToast(`${fromUsername || 'Incoming call'} (${isVideo ? 'video' : 'audio'})`);
+      playNotificationTone('call');
+    }
+    return;
+  }
   showDesktopNotification(fromUsername || 'Incoming call', isVideo ? 'Incoming video call' : 'Incoming audio call', `call-${fromUsername || 'incoming'}`, 'call');
 }
 
@@ -1114,6 +1120,36 @@ function setMobileView(mode) {
   appShell.classList.toggle('mobile-list-mode', mode === 'list');
   appShell.classList.toggle('mobile-chat-mode', mode === 'chat');
 }
+
+function handleNativeBack() {
+  if (avatarViewer?.classList.contains('open')) {
+    closeAvatarViewer();
+    return true;
+  }
+  if (messageInfoModal?.classList.contains('open')) {
+    closeMessageInfo();
+    return true;
+  }
+  if (newChatModal?.classList.contains('open')) {
+    newChatModal.classList.remove('open');
+    return true;
+  }
+  if (notifSheet?.classList.contains('open')) {
+    notifSheet.classList.remove('open');
+    return true;
+  }
+  if (attachMenu && !attachMenu.hidden) {
+    closeAttachMenu();
+    return true;
+  }
+  if (isMobileScreen() && appShell.classList.contains('mobile-chat-mode')) {
+    setMobileView('list');
+    return true;
+  }
+  return false;
+}
+
+window.nextalkHandleNativeBack = handleNativeBack;
 
 function applySidebarModeFromStorage() {
   const collapsed = localStorage.getItem('nextalk_sidebar_collapsed') === '1';
@@ -1685,7 +1721,6 @@ async function openConversation(conversation) {
   }
 
   subscribeConversation(conversation.id);
-  messageInput.focus();
 }
 
 function autoResize() {

@@ -2,7 +2,10 @@ package com.nextalk.service;
 
 import java.io.FileInputStream;
 import java.io.InputStream;
+import java.io.ByteArrayInputStream;
+import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
+import java.util.Base64;
 import java.util.Collections;
 import java.util.HashMap;
 import java.util.HashSet;
@@ -48,6 +51,9 @@ public class PushNotificationService {
     @Value("${nextalk.fcm.service-account-path:}")
     private String serviceAccountPath;
 
+    @Value("${nextalk.fcm.service-account-json:}")
+    private String serviceAccountJson;
+
     private FirebaseApp firebaseApp;
 
     @PostConstruct
@@ -56,20 +62,49 @@ public class PushNotificationService {
             log.info("FCM disabled by config (nextalk.fcm.enabled=false)");
             return;
         }
-        if (serviceAccountPath == null || serviceAccountPath.isBlank()) {
-            log.warn("FCM enabled but service account path is empty");
-            return;
-        }
 
-        try (InputStream stream = new FileInputStream(serviceAccountPath)) {
+        try (InputStream stream = openServiceAccountStream()) {
+            if (stream == null) {
+                log.warn("FCM enabled but no service account source configured (path/json)");
+                return;
+            }
             FirebaseOptions options = FirebaseOptions.builder()
                     .setCredentials(GoogleCredentials.fromStream(stream))
                     .build();
             firebaseApp = FirebaseApp.initializeApp(options, "nextalk-fcm");
-            log.info("FCM initialized using service account at {}", serviceAccountPath);
+            if (serviceAccountJson != null && !serviceAccountJson.isBlank()) {
+                log.info("FCM initialized using service account JSON from environment");
+            } else {
+                log.info("FCM initialized using service account at {}", serviceAccountPath);
+            }
         } catch (Exception error) {
             firebaseApp = null;
-            log.error("Failed to initialize FCM using service account {}", serviceAccountPath, error);
+            log.error("Failed to initialize FCM service account", error);
+        }
+    }
+
+    private InputStream openServiceAccountStream() {
+        String json = serviceAccountJson == null ? "" : serviceAccountJson.trim();
+        if (!json.isBlank()) {
+            String normalized = json;
+            if (!normalized.startsWith("{")) {
+                try {
+                    normalized = new String(Base64.getDecoder().decode(normalized), StandardCharsets.UTF_8);
+                } catch (IllegalArgumentException ignored) {
+                }
+            }
+            normalized = normalized.replace("\\n", "\n");
+            return new ByteArrayInputStream(normalized.getBytes(StandardCharsets.UTF_8));
+        }
+
+        if (serviceAccountPath == null || serviceAccountPath.isBlank()) {
+            return null;
+        }
+        try {
+            return new FileInputStream(serviceAccountPath);
+        } catch (Exception error) {
+            log.error("Could not open FCM service account path {}", serviceAccountPath, error);
+            return null;
         }
     }
 

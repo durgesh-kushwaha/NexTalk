@@ -307,12 +307,26 @@ class MainActivity : AppCompatActivity() {
 
         onBackPressedDispatcher.addCallback(this, object : OnBackPressedCallback(true) {
             override fun handleOnBackPressed() {
-                if (webView.canGoBack()) {
-                    webView.goBack()
+                if (!::webView.isInitialized) {
+                    isEnabled = false
+                    onBackPressedDispatcher.onBackPressed()
                     return
                 }
-                isEnabled = false
-                onBackPressedDispatcher.onBackPressed()
+
+                webView.evaluateJavascript(
+                    "window.nextalkHandleNativeBack && window.nextalkHandleNativeBack();"
+                ) { result ->
+                    val handled = result == "true"
+                    if (handled) {
+                        return@evaluateJavascript
+                    }
+                    if (webView.canGoBack()) {
+                        webView.goBack()
+                        return@evaluateJavascript
+                    }
+                    isEnabled = false
+                    onBackPressedDispatcher.onBackPressed()
+                }
             }
         })
 
