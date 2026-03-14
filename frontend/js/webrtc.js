@@ -7,6 +7,7 @@ class WebRTCManager {
     this.isVideoCall = false;
     this.isMuted = false;
     this.isCameraOff = false;
+    this.isSpeakerOn = false;
     this.timerId = null;
     this.callStartedAt = null;
     this.pendingIceCandidates = [];
@@ -38,15 +39,20 @@ class WebRTCManager {
     this.audioCallVisual = document.getElementById('audio-call-visual');
     this.audioCallAvatarImage = document.getElementById('audio-call-avatar-image');
     this.audioCallAvatarFallback = document.getElementById('audio-call-avatar-fallback');
+    this.btnToggleCamera = document.getElementById('btn-toggle-camera');
+    this.btnSwitchCamera = document.getElementById('btn-switch-camera');
     this.requestTimeoutId = null;
+    this.remoteAudio = new Audio();
+    this.remoteAudio.autoplay = true;
+    this.remoteAudio.playsInline = true;
     this.remoteVideo.style.transform = 'scaleX(-1)';
     this.remoteVideo.style.webkitTransform = 'scaleX(-1)';
 
     document.getElementById('accept-call-btn').addEventListener('click', () => this.acceptCall());
     document.getElementById('reject-call-btn').addEventListener('click', () => this.rejectCall());
     document.getElementById('btn-toggle-mute').addEventListener('click', () => this.toggleMute());
-    document.getElementById('btn-toggle-camera').addEventListener('click', () => this.toggleCamera());
-    document.getElementById('btn-switch-camera').addEventListener('click', () => this.switchCamera());
+    this.btnToggleCamera.addEventListener('click', () => this.handleThirdControl());
+    this.btnSwitchCamera.addEventListener('click', () => this.switchCamera());
     document.getElementById('btn-end-call').addEventListener('click', () => this.endCall());
 
     const unlockAudio = () => {
@@ -172,6 +178,44 @@ class WebRTCManager {
       return;
     }
     this.overlay.classList.toggle('audio-mode', !this.isVideoCall);
+    this.updateCallControlsForMode();
+  }
+
+  updateCallControlsForMode() {
+    if (this.isVideoCall) {
+      this.setControlLabel('btn-toggle-camera', this.isCameraOff ? 'videocam_off' : 'videocam', this.isCameraOff ? 'Camera Off' : 'Camera');
+      this.btnSwitchCamera.hidden = false;
+      return;
+    }
+
+    this.setControlLabel('btn-toggle-camera', this.isSpeakerOn ? 'volume_up' : 'hearing', this.isSpeakerOn ? 'Speaker On' : 'Speaker Off');
+    this.btnSwitchCamera.hidden = true;
+  }
+
+  async applySpeakerMode() {
+    if (this.isVideoCall || !this.remoteAudio) {
+      return;
+    }
+
+    if (typeof this.remoteAudio.setSinkId === 'function') {
+      const targetSink = this.isSpeakerOn ? 'default' : 'communications';
+      try {
+        await this.remoteAudio.setSinkId(targetSink);
+      } catch (error) {
+        if (!this.isSpeakerOn) {
+          try {
+            await this.remoteAudio.setSinkId('default');
+          } catch (fallbackError) {
+          }
+        }
+      }
+    }
+
+    this.remoteAudio.volume = this.isSpeakerOn ? 1 : 0.75;
+    try {
+      await this.remoteAudio.play();
+    } catch (error) {
+    }
   }
 
   async initiateCall(videoEnabled) {
@@ -284,6 +328,14 @@ class WebRTCManager {
     this.setControlLabel('btn-toggle-mute', this.isMuted ? 'mic_off' : 'mic', this.isMuted ? 'Unmute' : 'Mute');
   }
 
+  handleThirdControl() {
+    if (this.isVideoCall) {
+      this.toggleCamera();
+      return;
+    }
+    this.toggleSpeaker();
+  }
+
   toggleCamera() {
     if (!this.localStream) {
       return;
@@ -292,7 +344,13 @@ class WebRTCManager {
     this.localStream.getVideoTracks().forEach((track) => {
       track.enabled = !this.isCameraOff;
     });
-    this.setControlLabel('btn-toggle-camera', this.isCameraOff ? 'videocam_off' : 'videocam', this.isCameraOff ? 'Camera Off' : 'Camera');
+    this.updateCallControlsForMode();
+  }
+
+  toggleSpeaker() {
+    this.isSpeakerOn = !this.isSpeakerOn;
+    this.updateCallControlsForMode();
+    this.applySpeakerMode();
   }
 
   handleSignal(signal) {
@@ -529,9 +587,20 @@ class WebRTCManager {
     this.peerConnection.ontrack = (event) => {
       if (!this.remoteStream) {
         this.remoteStream = new MediaStream();
-        this.remoteVideo.srcObject = this.remoteStream;
       }
       this.remoteStream.addTrack(event.track);
+
+      if (this.isVideoCall) {
+        this.remoteAudio.srcObject = null;
+        this.remoteVideo.srcObject = this.remoteStream;
+        this.remoteVideo.muted = false;
+        this.remoteVideo.play().catch(() => {});
+      } else {
+        this.remoteVideo.srcObject = null;
+        this.remoteVideo.muted = true;
+        this.remoteAudio.srcObject = this.remoteStream;
+        this.applySpeakerMode();
+      }
     };
 
     this.peerConnection.onconnectionstatechange = () => {
@@ -599,6 +668,9 @@ class WebRTCManager {
     this.pendingIceCandidates = [];
     this.localVideo.srcObject = null;
     this.remoteVideo.srcObject = null;
+    this.remoteVideo.muted = false;
+    this.remoteAudio.pause();
+    this.remoteAudio.srcObject = null;
     this.notification.classList.remove('open');
     this.overlay.classList.remove('open');
     this.callStateLabel.textContent = 'Waiting';
@@ -606,10 +678,11 @@ class WebRTCManager {
     this.callInProgress = false;
     this.isMuted = false;
     this.isCameraOff = false;
+    this.isSpeakerOn = false;
     this.currentFacingMode = 'user';
     this.applyCallModeClass();
     this.setControlLabel('btn-toggle-mute', 'mic', 'Mute');
-    this.setControlLabel('btn-toggle-camera', 'videocam', 'Camera');
+    this.updateCallControlsForMode();
   }
 
   flash(message) {
