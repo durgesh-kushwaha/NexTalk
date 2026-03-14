@@ -3,6 +3,8 @@ package com.nextalk.service;
 import com.google.auth.oauth2.GoogleCredentials;
 import com.google.firebase.FirebaseApp;
 import com.google.firebase.FirebaseOptions;
+import com.google.firebase.messaging.AndroidConfig;
+import com.google.firebase.messaging.AndroidNotification;
 import com.google.firebase.messaging.FirebaseMessaging;
 import com.google.firebase.messaging.FirebaseMessagingException;
 import com.google.firebase.messaging.Message;
@@ -14,6 +16,8 @@ import jakarta.annotation.PostConstruct;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 import java.io.FileInputStream;
 import java.io.InputStream;
@@ -28,6 +32,8 @@ import java.util.stream.Collectors;
 
 @Service
 public class PushNotificationService {
+
+    private static final Logger log = LoggerFactory.getLogger(PushNotificationService.class);
 
     private static final int MAX_TOKENS_PER_USER = 20;
 
@@ -45,9 +51,11 @@ public class PushNotificationService {
     @PostConstruct
     public void init() {
         if (!fcmEnabled) {
+            log.info("FCM disabled by config (nextalk.fcm.enabled=false)");
             return;
         }
         if (serviceAccountPath == null || serviceAccountPath.isBlank()) {
+            log.warn("FCM enabled but service account path is empty");
             return;
         }
 
@@ -56,8 +64,10 @@ public class PushNotificationService {
                     .setCredentials(GoogleCredentials.fromStream(stream))
                     .build();
             firebaseApp = FirebaseApp.initializeApp(options, "nextalk-fcm");
+            log.info("FCM initialized using service account at {}", serviceAccountPath);
         } catch (Exception error) {
             firebaseApp = null;
+            log.error("Failed to initialize FCM using service account {}", serviceAccountPath, error);
         }
     }
 
@@ -86,6 +96,7 @@ public class PushNotificationService {
 
             user.setFcmTokens(existing);
             userRepository.save(user);
+            log.info("Registered FCM token for user {} ({} total token(s))", username, existing.size());
         });
     }
 
@@ -150,10 +161,12 @@ public class PushNotificationService {
 
     private void sendToTokens(List<String> tokens, String title, String body, Map<String, String> data) {
         if (tokens == null || tokens.isEmpty()) {
+            log.debug("Skipping push: no recipient tokens");
             return;
         }
 
         if (firebaseApp == null || !fcmEnabled) {
+            log.warn("Skipping push: FCM not initialized (enabled={}, appReady={})", fcmEnabled, firebaseApp != null);
             return;
         }
 
@@ -163,18 +176,32 @@ public class PushNotificationService {
                 .collect(Collectors.toList());
 
         if (validTokens.isEmpty()) {
+            log.debug("Skipping push: valid token list empty after filtering");
             return;
         }
+
+        AndroidConfig androidConfig = AndroidConfig.builder()
+                .setPriority(AndroidConfig.Priority.HIGH)
+                .setNotification(
+                    AndroidNotification.builder()
+                        .setChannelId("call".equals(data == null ? "" : data.get("type")) ? "nextalk_calls" : "nextalk_messages")
+                        .setSound("default")
+                        .build()
+                )
+                .build();
 
         if (validTokens.size() == 1) {
             Message message = Message.builder()
                     .setToken(validTokens.get(0))
                     .setNotification(Notification.builder().setTitle(title).setBody(body).build())
+                    .setAndroidConfig(androidConfig)
                     .putAllData(data == null ? Map.of() : data)
                     .build();
             try {
                 FirebaseMessaging.getInstance(firebaseApp).send(message);
+                log.debug("Push sent to 1 token");
             } catch (FirebaseMessagingException error) {
+                log.error("Failed to send push to single token", error);
             }
             return;
         }
@@ -182,12 +209,15 @@ public class PushNotificationService {
         MulticastMessage message = MulticastMessage.builder()
                 .addAllTokens(validTokens)
                 .setNotification(Notification.builder().setTitle(title).setBody(body).build())
+                .setAndroidConfig(androidConfig)
                 .putAllData(data == null ? Map.of() : data)
                 .build();
 
         try {
             FirebaseMessaging.getInstance(firebaseApp).sendEachForMulticast(message);
+            log.debug("Push multicast sent to {} token(s)", validTokens.size());
         } catch (FirebaseMessagingException error) {
+            log.error("Failed to send multicast push", error);
         }
     }
 }
