@@ -21,6 +21,7 @@ class WebRTCManager {
     this.selectedAudioOutputId = '';
     this.lastIncomingCallFrom = '';
     this.lastIncomingCallAt = 0;
+    this.incomingRingLocked = false;
 
     this.iceConfig = {
       iceServers: [
@@ -508,6 +509,7 @@ class WebRTCManager {
     }
 
     this.stopIncomingRingtone();
+    this.incomingRingLocked = true;
 
     this.callInProgress = true;
     this.notification.classList.remove('open');
@@ -544,6 +546,7 @@ class WebRTCManager {
   rejectCall() {
     this.notification.classList.remove('open');
     this.stopIncomingRingtone();
+    this.incomingRingLocked = true;
     window.sendSignal({
       type: 'CALL_REJECTED',
       toUsername: this.callPartner,
@@ -598,6 +601,11 @@ class WebRTCManager {
   }
 
   handleSignal(signal) {
+    const type = String(signal?.type || '');
+    if (type !== 'CALL_REQUEST') {
+      this.stopIncomingRingtone();
+    }
+
     switch (signal.type) {
       case 'CALL_REQUEST':
         this.onCallRequest(signal);
@@ -606,6 +614,7 @@ class WebRTCManager {
         this.onGroupInvite(signal);
         break;
       case 'CALL_ACCEPTED':
+        this.incomingRingLocked = true;
         if (this.requestTimeoutId) {
           clearTimeout(this.requestTimeoutId);
           this.requestTimeoutId = null;
@@ -613,6 +622,7 @@ class WebRTCManager {
         this.onCallAccepted();
         break;
       case 'CALL_REJECTED':
+        this.incomingRingLocked = true;
         this.flash(`${signal.fromUsername || 'User'} declined your call`);
         this.cleanup();
         break;
@@ -626,6 +636,7 @@ class WebRTCManager {
         this.onIceCandidate(signal);
         break;
       case 'CALL_ENDED':
+        this.incomingRingLocked = true;
         this.flash('Call ended');
         this.cleanup();
         break;
@@ -678,6 +689,10 @@ class WebRTCManager {
   }
 
   onCallRequest(signal) {
+    if (this.incomingRingLocked) {
+      return;
+    }
+
     const from = String(signal.fromUsername || '').toLowerCase();
     const now = Date.now();
     if (
@@ -989,6 +1004,7 @@ class WebRTCManager {
     this.selectedAudioOutputId = '';
     this.lastIncomingCallFrom = '';
     this.lastIncomingCallAt = 0;
+    this.incomingRingLocked = false;
     if (this.audioOutputWrap) {
       this.audioOutputWrap.hidden = true;
     }
