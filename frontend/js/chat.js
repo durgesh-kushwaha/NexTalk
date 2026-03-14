@@ -46,6 +46,9 @@ let chatStatusBaseText = 'offline';
 let typingStatusTimer = null;
 let typingIdleTimer = null;
 let isTypingBroadcasted = false;
+let hasLoadedOfflineBootstrap = false;
+
+const offlineStore = window.nextalkOfflineStore || null;
 
 const sidebar = document.getElementById('sidebar');
 const appShell = document.querySelector('.app-shell');
@@ -433,6 +436,104 @@ function resolveMediaUrl(path) {
   return `${BACKEND_ORIGIN}/${value}`;
 }
 
+function offlineReady() {
+  return !!offlineStore;
+}
+
+async function bootstrapOfflineStore() {
+  if (!offlineReady()) {
+    return;
+  }
+  try {
+    await offlineStore.init();
+  } catch (error) {
+  }
+}
+
+async function cacheConversationsOffline(items) {
+  if (!offlineReady()) {
+    return;
+  }
+  try {
+    await offlineStore.saveConversations(items || []);
+  } catch (error) {
+  }
+}
+
+async function loadOfflineConversations() {
+  if (!offlineReady()) {
+    return [];
+  }
+  try {
+    return await offlineStore.loadConversations();
+  } catch (error) {
+    return [];
+  }
+}
+
+async function cacheMessagesOffline(conversationId, messages) {
+  if (!offlineReady() || !conversationId) {
+    return;
+  }
+  try {
+    await offlineStore.saveMessages(conversationId, messages || []);
+  } catch (error) {
+  }
+}
+
+async function cacheMessageOffline(conversationId, message) {
+  if (!offlineReady() || !conversationId || !message) {
+    return;
+  }
+  try {
+    await offlineStore.upsertMessage(conversationId, message);
+  } catch (error) {
+  }
+}
+
+async function loadOfflineMessages(conversationId, limit) {
+  if (!offlineReady() || !conversationId) {
+    return [];
+  }
+  try {
+    return await offlineStore.loadMessages(conversationId, limit || 200);
+  } catch (error) {
+    return [];
+  }
+}
+
+async function cacheImageAsset(url) {
+  if (!offlineReady() || !url || !/^https?:\/\//i.test(url)) {
+    return;
+  }
+  try {
+    await offlineStore.cacheImageFromUrl(url);
+  } catch (error) {
+  }
+}
+
+async function resolveCachedImageUrl(url) {
+  if (!offlineReady() || !url) {
+    return '';
+  }
+  try {
+    return await offlineStore.getCachedImageUrl(url);
+  } catch (error) {
+    return '';
+  }
+}
+
+async function resolveCachedImageBlob(url) {
+  if (!offlineReady() || !url) {
+    return null;
+  }
+  try {
+    return await offlineStore.getCachedImageBlob(url);
+  } catch (error) {
+    return null;
+  }
+}
+
 function setAvatarVisual(element, name, avatarUrl) {
   if (!element) {
     return;
@@ -466,11 +567,20 @@ async function downloadViewerImage() {
     return;
   }
   try {
-    const response = await fetch(viewerDownloadUrl);
-    if (!response.ok) {
-      throw new Error('Download failed');
+    let blob = null;
+    try {
+      const response = await fetch(viewerDownloadUrl);
+      if (!response.ok) {
+        throw new Error('Download failed');
+      }
+      blob = await response.blob();
+    } catch (networkError) {
+      blob = await resolveCachedImageBlob(viewerDownloadUrl);
+      if (!blob) {
+        throw networkError;
+      }
     }
-    const blob = await response.blob();
+
     const blobUrl = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = blobUrl;
@@ -905,6 +1015,7 @@ async function loadConversations(quiet) {
       const t2 = b.lastMessageAt ? new Date(b.lastMessageAt).getTime() : 0;
       return t2 - t1;
     });
+    await cacheConversationsOffline(conversationsCache);
     snapshotConversationActivity(conversationsCache);
     if (currentConversation) {
       const updated = conversationsCache.find((item) => item.id === currentConversation.id);
@@ -918,6 +1029,16 @@ async function loadConversations(quiet) {
       await openConversation(conversationsCache[0]);
     }
   } catch (error) {
+    const offlineConversations = await loadOfflineConversations();
+    if (offlineConversations.length) {
+      conversationsCache = offlineConversations;
+      snapshotConversationActivity(conversationsCache);
+      refreshFilteredList();
+      if (!quiet) {
+        showToast('Offline mode: showing cached chats');
+      }
+      return;
+    }
     if (!quiet) {
       showToast(error.message || 'Failed to load conversations');
     }
@@ -1004,7 +1125,7 @@ function renderMessageContent(message) {
     if (!src) {
       return escapeHtml('[image unavailable]');
     }
-    return `<a class="message-image-link" href="${escapeHtml(src)}" data-image-url="${escapeHtml(src)}"><img class="message-image" src="${escapeHtml(src)}" alt="Image" loading="lazy" /></a>`;
+    return `<a class="message-image-link" href="${escapeHtml(src)}" data-image-url="${escapeHtml(src)}"><img class="message-image" src="${escapeHtml(src)}" data-source-url="${escapeHtml(src)}" alt="Image" loading="lazy" /></a>`;
   }
   return escapeHtml(message.content || '');
 }
@@ -1043,6 +1164,26 @@ function appendMessage(message, smooth) {
   if (!existing) {
     messagesContainer.appendChild(bubble);
   }
+
+  if (currentConversation?.id) {
+    cacheMessageOffline(currentConversation.id, message);
+  }
+
+  if (message.type === 'IMAGE') {
+    const imageUrl = resolveMediaUrl(message.content || '');
+    if (imageUrl) {
+      cacheImageAsset(imageUrl);
+      const imageEl = bubble.querySelector('.message-image');
+      if (imageEl) {
+        resolveCachedImageUrl(imageUrl).then((cachedUrl) => {
+          if (cachedUrl) {
+            imageEl.src = cachedUrl;
+          }
+        });
+      }
+    }
+  }
+
   messagesContainer.scrollTo({
     top: messagesContainer.scrollHeight,
     behavior: smooth ? 'smooth' : 'auto',
@@ -1063,15 +1204,27 @@ async function openConversation(conversation) {
   setChatHeader(conversation);
   messagesContainer.innerHTML = '';
 
+  const cachedMessages = await loadOfflineMessages(conversation.id, 200);
+  if (cachedMessages.length) {
+    cachedMessages.forEach((message) => appendMessage(message, false));
+  }
+
   try {
     const messages = await api.get(`/conversations/${conversation.id}/messages?size=100`);
+    if (messages.length) {
+      await cacheMessagesOffline(conversation.id, messages);
+    }
     messages.forEach((message) => appendMessage(message, false));
     await markConversationDelivered();
     if (!isAway()) {
       await markConversationRead();
     }
   } catch (error) {
-    showToast(error.message || 'Failed to load messages');
+    if (!cachedMessages.length) {
+      showToast(error.message || 'Failed to load messages');
+    } else {
+      showToast('Offline mode: showing cached messages');
+    }
   }
 
   subscribeConversation(conversation.id);
@@ -1468,6 +1621,19 @@ messagesContainer.addEventListener('click', (event) => {
   openAvatarViewer(imageUrl, 'Image');
 });
 
+messagesContainer.addEventListener('error', (event) => {
+  const imageEl = event.target;
+  if (!(imageEl instanceof HTMLImageElement) || !imageEl.classList.contains('message-image')) {
+    return;
+  }
+  const sourceUrl = imageEl.getAttribute('data-source-url') || imageEl.getAttribute('src') || '';
+  resolveCachedImageUrl(sourceUrl).then((cachedUrl) => {
+    if (cachedUrl && imageEl.src !== cachedUrl) {
+      imageEl.src = cachedUrl;
+    }
+  });
+}, true);
+
 messagesContainer.addEventListener('contextmenu', (event) => {
   if (!isTouchLayout()) {
     return;
@@ -1580,6 +1746,7 @@ document.getElementById('logout-btn').addEventListener('click', () => {
 });
 
 async function init() {
+  await bootstrapOfflineStore();
   applyTheme(localStorage.getItem(THEME_KEY) || 'dark');
   clearReplyTarget();
   syncNotificationControls();
@@ -1598,6 +1765,16 @@ async function init() {
   if (isMobileScreen()) {
     setMobileView('list');
   }
+
+  if (!hasLoadedOfflineBootstrap) {
+    const cachedConversations = await loadOfflineConversations();
+    if (cachedConversations.length) {
+      conversationsCache = cachedConversations;
+      refreshFilteredList();
+      hasLoadedOfflineBootstrap = true;
+    }
+  }
+
   await loadConversations(false);
   connectWebSocket();
   if (!refreshIntervalId) {
