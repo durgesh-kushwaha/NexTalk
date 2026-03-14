@@ -19,6 +19,8 @@ class WebRTCManager {
     this.callPartnerDisplayName = null;
     this.callPartnerAvatarUrl = '';
     this.selectedAudioOutputId = '';
+    this.lastIncomingCallFrom = '';
+    this.lastIncomingCallAt = 0;
 
     this.iceConfig = {
       iceServers: [
@@ -676,6 +678,18 @@ class WebRTCManager {
   }
 
   onCallRequest(signal) {
+    const from = String(signal.fromUsername || '').toLowerCase();
+    const now = Date.now();
+    if (
+      !this.callInProgress
+      && this.notification.classList.contains('open')
+      && from
+      && from === this.lastIncomingCallFrom
+      && (now - this.lastIncomingCallAt) < 15000
+    ) {
+      return;
+    }
+
     if (this.callInProgress) {
       window.sendSignal({
         type: 'CALL_REJECTED',
@@ -688,6 +702,8 @@ class WebRTCManager {
     this.callPartnerDisplayName = signal.fromUsername;
     this.callPartnerAvatarUrl = '';
     this.isVideoCall = !!signal.videoEnabled;
+    this.lastIncomingCallFrom = from;
+    this.lastIncomingCallAt = now;
     this.applyCallModeClass();
     this.applyAudioAvatar();
     this.notifName.textContent = this.callPartner || 'Unknown';
@@ -971,6 +987,8 @@ class WebRTCManager {
     this.isSpeakerOn = false;
     this.currentFacingMode = 'user';
     this.selectedAudioOutputId = '';
+    this.lastIncomingCallFrom = '';
+    this.lastIncomingCallAt = 0;
     if (this.audioOutputWrap) {
       this.audioOutputWrap.hidden = true;
     }

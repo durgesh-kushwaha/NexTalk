@@ -428,6 +428,9 @@ function notifyIncomingMessage(conversation, message) {
 }
 
 function notifyIncomingCall(fromUsername, isVideo) {
+  if (hasAndroidBridge()) {
+    return;
+  }
   const key = `call:${String(fromUsername || 'incoming').toLowerCase()}`;
   const signature = isVideo ? 'video' : 'audio';
   const now = Date.now();
@@ -1357,7 +1360,7 @@ function subscribeConversation(conversationId) {
     } else if (!own) {
       incrementUnread(conversationId);
     }
-    if (!own && isAway()) {
+    if (!own && (isAway() || currentConversation?.id !== conversationId)) {
       const preview = message.type === 'IMAGE'
         ? 'Image'
         : (message.type === 'FILE' && parseVideoNoticeContent(message.content)
