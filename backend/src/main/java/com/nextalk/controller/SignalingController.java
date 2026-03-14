@@ -1,15 +1,14 @@
 package com.nextalk.controller;
 
-import com.nextalk.dto.MessageDTO;
 import com.nextalk.dto.SendMessageRequest;
 import com.nextalk.dto.SignalMessage;
 import com.nextalk.service.MessageService;
+import com.nextalk.service.PushNotificationService;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.messaging.handler.annotation.DestinationVariable;
 import org.springframework.messaging.handler.annotation.MessageMapping;
 import org.springframework.messaging.handler.annotation.Payload;
 import org.springframework.messaging.simp.SimpMessagingTemplate;
-import org.springframework.messaging.simp.annotation.SubscribeMapping;
 import org.springframework.stereotype.Controller;
 
 import java.security.Principal;
@@ -22,6 +21,9 @@ public class SignalingController {
 
     @Autowired
     private SimpMessagingTemplate messagingTemplate;
+
+    @Autowired
+    private PushNotificationService pushNotificationService;
 
 
     @MessageMapping("/chat/{conversationId}")
@@ -59,5 +61,13 @@ public class SignalingController {
             "/topic/signals/" + signal.getToUsername(),
             signal
         );
+
+        if (signal.getType() == SignalMessage.SignalType.CALL_REQUEST) {
+            pushNotificationService.sendIncomingCallNotification(
+                signal.getToUsername(),
+                signal.getFromUsername(),
+                Boolean.TRUE.equals(signal.getVideoEnabled())
+            );
+        }
     }
 }

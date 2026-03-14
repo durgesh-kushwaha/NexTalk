@@ -27,12 +27,16 @@ import android.webkit.WebChromeClient
 import android.webkit.WebResourceRequest
 import android.webkit.WebView
 import android.webkit.WebViewClient
+import com.google.firebase.messaging.FirebaseMessaging
 import androidx.activity.OnBackPressedCallback
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.appcompat.app.AppCompatActivity
 import androidx.core.app.NotificationCompat
 import androidx.core.app.NotificationManagerCompat
 import androidx.core.content.ContextCompat
+import java.net.HttpURLConnection
+import java.net.URL
+import java.util.concurrent.Executors
 
 class MainActivity : AppCompatActivity() {
 
@@ -47,6 +51,7 @@ class MainActivity : AppCompatActivity() {
     private var pendingWebPermissionRequest: PermissionRequest? = null
     private var incomingRingtone: Ringtone? = null
     private var videoCallActive: Boolean = false
+    private val networkExecutor = Executors.newSingleThreadExecutor()
 
     inner class AndroidBridge {
         @JavascriptInterface
@@ -103,6 +108,23 @@ class MainActivity : AppCompatActivity() {
             runOnUiThread {
                 enterVideoPipIfPossible()
             }
+        }
+
+        @JavascriptInterface
+        fun registerFcmToken(authToken: String?, backendOrigin: String?) {
+            val tokenValue = authToken?.trim().orEmpty()
+            val originValue = backendOrigin?.trim().orEmpty().trimEnd('/')
+            if (tokenValue.isBlank() || originValue.isBlank()) {
+                return
+            }
+
+            FirebaseMessaging.getInstance().token
+                .addOnSuccessListener { fcmToken ->
+                    if (fcmToken.isNullOrBlank()) {
+                        return@addOnSuccessListener
+                    }
+                    postFcmTokenToBackend(originValue, tokenValue, fcmToken)
+                }
         }
     }
 
@@ -186,6 +208,7 @@ class MainActivity : AppCompatActivity() {
 
     override fun onDestroy() {
         stopIncomingRingtoneInternal()
+        networkExecutor.shutdownNow()
         super.onDestroy()
     }
 
@@ -518,6 +541,33 @@ class MainActivity : AppCompatActivity() {
                 type == AudioDeviceInfo.TYPE_BLE_BROADCAST
         }
         return false
+    }
+
+    private fun postFcmTokenToBackend(baseOrigin: String, authToken: String, fcmToken: String) {
+        networkExecutor.execute {
+            var connection: HttpURLConnection? = null
+            try {
+                val url = URL("$baseOrigin/api/devices/fcm-token")
+                connection = (url.openConnection() as HttpURLConnection).apply {
+                    requestMethod = "POST"
+                    doOutput = true
+                    connectTimeout = 12000
+                    readTimeout = 12000
+                    setRequestProperty("Authorization", "Bearer $authToken")
+                    setRequestProperty("Content-Type", "application/json")
+                }
+
+                val payload = JSONObject().put("token", fcmToken).toString()
+                connection.outputStream.use { output ->
+                    output.write(payload.toByteArray(Charsets.UTF_8))
+                }
+
+                connection.responseCode
+            } catch (_: Exception) {
+            } finally {
+                connection?.disconnect()
+            }
+        }
     }
 
 }

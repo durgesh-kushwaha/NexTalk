@@ -52,6 +52,9 @@ public class MessageService {
     @Autowired
     private SimpMessagingTemplate messagingTemplate;
 
+    @Autowired
+    private PushNotificationService pushNotificationService;
+
     @Value("${nextalk.media.root:${user.dir}/public}")
     private String mediaRoot;
 
@@ -110,6 +113,17 @@ public class MessageService {
             dto
         );
 
+        List<String> recipientUserIds = conversation.getParticipants().stream()
+            .map(ConversationParticipant::getUserId)
+            .filter(id -> !id.equals(sender.getId()))
+            .collect(Collectors.toList());
+        pushNotificationService.sendMessageNotificationToConversationParticipants(
+            conversationId,
+            sender.getDisplayName() != null ? sender.getDisplayName() : sender.getUsername(),
+            recipientUserIds,
+            content
+        );
+
         return dto;
     }
 
@@ -158,6 +172,18 @@ public class MessageService {
 
         MessageDTO dto = MessageDTO.from(message, UserDTO.from(sender));
         messagingTemplate.convertAndSend("/topic/conversation/" + conversationId, dto);
+
+        List<String> recipientUserIds = conversation.getParticipants().stream()
+            .map(ConversationParticipant::getUserId)
+            .filter(id -> !id.equals(sender.getId()))
+            .collect(Collectors.toList());
+        pushNotificationService.sendMessageNotificationToConversationParticipants(
+            conversationId,
+            sender.getDisplayName() != null ? sender.getDisplayName() : sender.getUsername(),
+            recipientUserIds,
+            "Image"
+        );
+
         return dto;
     }
 

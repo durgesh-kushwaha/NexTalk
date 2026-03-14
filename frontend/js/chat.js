@@ -145,6 +145,19 @@ function hasAndroidBridge() {
   return typeof window.AndroidBridge !== 'undefined';
 }
 
+function registerNativePushToken() {
+  if (!hasAndroidBridge()) {
+    return;
+  }
+  if (typeof window.AndroidBridge.registerFcmToken !== 'function') {
+    return;
+  }
+  try {
+    window.AndroidBridge.registerFcmToken(TOKEN || '', BACKEND_ORIGIN || '');
+  } catch (error) {
+  }
+}
+
 function isNativeAppClient() {
   return hasAndroidBridge();
 }
@@ -2024,6 +2037,7 @@ document.getElementById('logout-btn').addEventListener('click', () => {
 async function init() {
   await bootstrapOfflineStore();
   applyTheme(localStorage.getItem(THEME_KEY) || 'dark');
+  registerNativePushToken();
   clearReplyTarget();
   syncNotificationControls();
   updateNotifyButton();

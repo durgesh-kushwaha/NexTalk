@@ -25,6 +25,8 @@ public class SignalMessage {
     public enum SignalType {
         CALL_REQUEST,
 
+        CALL_GROUP_INVITE,
+
         CALL_ACCEPTED,
 
         CALL_REJECTED,

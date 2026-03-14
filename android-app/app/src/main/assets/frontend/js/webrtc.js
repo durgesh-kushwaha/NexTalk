@@ -42,6 +42,7 @@ class WebRTCManager {
     this.audioCallAvatarFallback = document.getElementById('audio-call-avatar-fallback');
     this.btnToggleCamera = document.getElementById('btn-toggle-camera');
     this.btnSwitchCamera = document.getElementById('btn-switch-camera');
+    this.btnAddParticipant = document.getElementById('btn-add-participant');
     this.audioOutputWrap = document.getElementById('audio-output-wrap');
     this.audioOutputSelect = document.getElementById('audio-output-select');
     this.requestTimeoutId = null;
@@ -62,6 +63,9 @@ class WebRTCManager {
     document.getElementById('btn-toggle-mute').addEventListener('click', () => this.toggleMute());
     this.btnToggleCamera.addEventListener('click', () => this.handleThirdControl());
     this.btnSwitchCamera.addEventListener('click', () => this.switchCamera());
+    if (this.btnAddParticipant) {
+      this.btnAddParticipant.addEventListener('click', () => this.inviteParticipant());
+    }
     document.getElementById('btn-end-call').addEventListener('click', () => this.endCall());
     if (this.audioOutputSelect) {
       this.audioOutputSelect.addEventListener('change', async (event) => {
@@ -569,6 +573,9 @@ class WebRTCManager {
       case 'CALL_REQUEST':
         this.onCallRequest(signal);
         break;
+      case 'CALL_GROUP_INVITE':
+        this.onGroupInvite(signal);
+        break;
       case 'CALL_ACCEPTED':
         if (this.requestTimeoutId) {
           clearTimeout(this.requestTimeoutId);
@@ -596,6 +603,49 @@ class WebRTCManager {
       default:
         break;
     }
+  }
+
+  inviteParticipant() {
+    if (!this.callInProgress) {
+      this.flash('Start a call first');
+      return;
+    }
+    const username = (window.prompt('Add participant by username', '') || '').trim();
+    if (!username) {
+      return;
+    }
+
+    const sent = window.sendSignal({
+      type: 'CALL_GROUP_INVITE',
+      toUsername: username,
+      videoEnabled: this.isVideoCall,
+      data: JSON.stringify({
+        inviter: this.callPartner || '',
+        activeCallType: this.isVideoCall ? 'video' : 'audio',
+      }),
+    });
+
+    if (!sent) {
+      return;
+    }
+    this.flash(`Invite sent to ${username}`);
+  }
+
+  onGroupInvite(signal) {
+    if (this.callInProgress) {
+      window.sendSignal({
+        type: 'CALL_REJECTED',
+        toUsername: signal.fromUsername,
+      });
+      return;
+    }
+    this.onCallRequest({
+      ...signal,
+      type: 'CALL_REQUEST',
+    });
+    this.notifType.textContent = this.isVideoCall
+      ? 'Invited to join group video call'
+      : 'Invited to join group audio call';
   }
 
   onCallRequest(signal) {
