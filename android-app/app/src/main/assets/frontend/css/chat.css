@@ -1872,7 +1872,7 @@ body[data-theme='light'] #btn-end-call {
   #new-chat-btn {
     position: fixed;
     right: calc(12px + var(--safe-right));
-    bottom: calc(14px + var(--safe-bottom));
+    bottom: calc(70px + var(--safe-bottom));
     width: 54px;
     height: 54px;
     border-radius: 999px;
