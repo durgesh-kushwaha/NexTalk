@@ -346,6 +346,9 @@ class MainActivity : AppCompatActivity() {
 
         // Start background polling service for notifications when app is in background
         startPollingService()
+
+        // Check if launched from a call notification
+        checkIncomingCallIntent(intent)
     }
 
     private fun startPollingService() {
@@ -361,6 +364,12 @@ class MainActivity : AppCompatActivity() {
         stopIncomingRingtoneInternal()
         networkExecutor.shutdownNow()
         super.onDestroy()
+    }
+
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        setIntent(intent)
+        checkIncomingCallIntent(intent)
     }
 
     override fun onResume() {
@@ -740,6 +749,30 @@ class MainActivity : AppCompatActivity() {
         webView.post {
             webView.evaluateJavascript(js, null)
         }
+    }
+
+    /**
+     * Check if the activity was launched/resumed from a call notification.
+     * If so, forward the incoming call data to the WebView.
+     */
+    private fun checkIncomingCallIntent(intent: Intent?) {
+        if (intent == null) return
+        if (!intent.getBooleanExtra("nextalk_incoming_call", false)) return
+
+        val fromUsername = intent.getStringExtra("nextalk_call_from") ?: return
+        val videoEnabled = intent.getBooleanExtra("nextalk_call_video", false)
+
+        // Clear the extras so we don't re-trigger on next resume
+        intent.removeExtra("nextalk_incoming_call")
+        intent.removeExtra("nextalk_call_from")
+        intent.removeExtra("nextalk_call_video")
+
+        // Wait a moment for WebView to be ready, then trigger the incoming call screen
+        if (!::webView.isInitialized) return
+        webView.postDelayed({
+            val js = "window.nextalkHandleIncomingCall && window.nextalkHandleIncomingCall('${fromUsername.replace("'", "\\'")}', $videoEnabled);"
+            webView.evaluateJavascript(js, null)
+        }, 1500) // Delay to let WebView + STOMP connect
     }
 
     private fun triggerNativePushRegistrationInWebView() {

@@ -1494,15 +1494,16 @@ body[data-theme='light'] .incoming-call-type {
   height: 100dvh;
   background: #000;
   display: none;
+  flex-direction: column;
   z-index: 20;
   overflow: hidden;
 }
 
 .call-overlay.audio-mode {
   background:
-    radial-gradient(circle at 14% 10%, rgba(34, 184, 207, 0.18), transparent 34%),
-    radial-gradient(circle at 88% 92%, rgba(255, 138, 61, 0.14), transparent 36%),
-    linear-gradient(145deg, #08141d 0%, #0b1a25 45%, #09151f 100%);
+    radial-gradient(ellipse at 20% 10%, rgba(34, 184, 207, 0.20), transparent 40%),
+    radial-gradient(ellipse at 80% 90%, rgba(16, 185, 129, 0.12), transparent 40%),
+    linear-gradient(160deg, #0a1520 0%, #0d1e2c 50%, #0a1520 100%);
 }
 
 .call-overlay.audio-mode::before {
@@ -1510,9 +1511,8 @@ body[data-theme='light'] .incoming-call-type {
   position: absolute;
   inset: 0;
   background-image:
-    radial-gradient(circle at 14px 14px, rgba(143, 189, 208, 0.12) 1px, transparent 1px),
-    radial-gradient(circle at 40px 26px, rgba(143, 189, 208, 0.08) 1px, transparent 1px);
-  background-size: 56px 56px;
+    radial-gradient(circle at 14px 14px, rgba(143, 189, 208, 0.08) 1px, transparent 1px);
+  background-size: 48px 48px;
   pointer-events: none;
 }
 
@@ -1525,17 +1525,17 @@ body[data-theme='light'] .incoming-call-type {
 }
 
 .audio-call-avatar {
-  width: min(52vw, 220px);
+  width: min(48vw, 200px);
   aspect-ratio: 1 / 1;
   border-radius: 999px;
   overflow: hidden;
-  border: 4px solid rgba(190, 229, 243, 0.42);
-  box-shadow: 0 20px 40px rgba(0, 0, 0, 0.36);
+  border: 3px solid rgba(190, 229, 243, 0.30);
+  box-shadow: 0 0 0 8px rgba(56, 189, 248, 0.08), 0 24px 48px rgba(0, 0, 0, 0.40);
   background: linear-gradient(140deg, #1d8ea6, #2d7e9b);
   display: grid;
   place-items: center;
   color: #eaf8ff;
-  font-size: clamp(2rem, 8vw, 3.6rem);
+  font-size: clamp(2.2rem, 8vw, 3.6rem);
   font-weight: 700;
   letter-spacing: 0.02em;
 }
@@ -1574,15 +1574,17 @@ body[data-theme='light'] .incoming-call-type {
 
 .local-video {
   position: absolute;
-  right: 18px;
-  top: 18px;
-  width: clamp(220px, 26vw, 360px);
-  aspect-ratio: 16 / 9;
-  border-radius: 12px;
+  right: 16px;
+  top: calc(16px + var(--safe-top, 0px));
+  width: clamp(100px, 26vw, 180px);
+  aspect-ratio: 3 / 4;
+  border-radius: 16px;
   object-fit: cover;
-  border: 1px solid rgba(255, 255, 255, 0.16);
+  border: 2px solid rgba(255, 255, 255, 0.20);
   background: #101010;
   display: block;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.5);
+  z-index: 3;
 }
 
 .local-video.expanded {
@@ -1593,70 +1595,136 @@ body[data-theme='light'] .incoming-call-type {
   max-height: 86vh;
   height: auto;
   transform: translate(-50%, -50%);
-  z-index: 3;
+  z-index: 4;
   border: 2px solid rgba(255, 255, 255, 0.36);
   box-shadow: 0 18px 42px rgba(0, 0, 0, 0.5);
+  aspect-ratio: auto;
 }
 
+/* Call info bar at top */
 .call-meta {
   position: absolute;
-  top: 18px;
-  left: 18px;
-  display: grid;
-  gap: 4px;
+  top: 0;
+  left: 0;
+  right: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: calc(20px + var(--safe-top, 0px)) 20px 14px;
   color: #fff;
-  text-shadow: 0 2px 6px rgba(0, 0, 0, 0.6);
-  max-width: calc(100% - 250px);
   z-index: 2;
+  background: linear-gradient(to bottom, rgba(0,0,0,0.5) 0%, transparent 100%);
+}
+
+.call-meta strong {
+  font-size: 1.1rem;
+  font-weight: 600;
+  letter-spacing: 0.01em;
 }
 
 #call-state-text {
-  color: #c5deea;
-  font-size: 0.78rem;
+  color: rgba(200, 230, 245, 0.8);
+  font-size: 0.82rem;
+  margin-top: 2px;
+}
+
+#call-timer {
+  font-size: 0.82rem;
+  color: rgba(200, 230, 245, 0.7);
+  font-variant-numeric: tabular-nums;
 }
 
 body[data-theme='light'] #call-state-text {
-  color: #6a8798;
+  color: rgba(255, 255, 255, 0.85);
 }
 
+/* WhatsApp-style call controls — centered round buttons at bottom */
 .call-controls {
   position: absolute;
-  left: 50%;
-  transform: translateX(-50%);
-  bottom: 20px;
+  left: 0;
+  right: 0;
+  bottom: 0;
   display: flex;
-  gap: 10px;
-  z-index: 2;
+  align-items: center;
+  justify-content: center;
+  gap: 20px;
+  padding: 24px 20px calc(28px + var(--safe-bottom, 0px));
+  z-index: 5;
+  background: linear-gradient(to top, rgba(0,0,0,0.60) 0%, transparent 100%);
 }
 
 .call-controls button {
-  min-width: 92px;
-  height: 40px;
-  border-radius: 999px;
+  width: 56px;
+  height: 56px;
+  border-radius: 50%;
   border: 0;
   font: inherit;
-  font-size: 0.78rem;
-  font-weight: 700;
+  font-size: 0;
   cursor: pointer;
-  background: #173242;
-  color: #d7ecf6;
-  display: inline-flex;
+  background: rgba(255, 255, 255, 0.15);
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
+  color: #fff;
+  display: flex;
+  flex-direction: column;
   align-items: center;
   justify-content: center;
-  gap: 6px;
+  gap: 2px;
+  transition: transform 0.15s ease, background 0.15s ease;
+}
+
+.call-controls button:active {
+  transform: scale(0.90);
+}
+
+.call-controls button .material-symbols-rounded {
+  font-size: 26px;
+}
+
+.call-controls button span:last-child {
+  font-size: 0.6rem;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  opacity: 0.9;
+}
+
+/* End call button — red, larger */
+#btn-end-call {
+  width: 64px;
+  height: 64px;
+  background: #ef4444;
+  color: #fff;
+  box-shadow: 0 6px 20px rgba(239, 68, 68, 0.40);
+}
+
+#btn-end-call .material-symbols-rounded {
+  font-size: 30px;
+}
+
+/* Muted / camera-off states */
+.call-controls button[data-active="true"] {
+  background: rgba(255, 255, 255, 0.90);
+  color: #1a1a1a;
 }
 
 .audio-output-wrap {
-  min-width: 190px;
-  height: 40px;
+  min-width: 160px;
+  height: 44px;
   border-radius: 999px;
-  border: 1px solid rgba(181, 214, 228, 0.42);
-  background: rgba(18, 53, 69, 0.86);
-  color: #d7ecf6;
+  border: 1px solid rgba(255, 255, 255, 0.20);
+  background: rgba(255, 255, 255, 0.12);
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
+  color: #fff;
   display: inline-flex;
   align-items: center;
   gap: 6px;
-  padding: 0 10px;
+  padding: 0 12px;
+}
+
+.audio-output-wrap .material-symbols-rounded {
+  font-size: 20px;
 }
 
 .audio-output-wrap select {
@@ -1667,7 +1735,7 @@ body[data-theme='light'] #call-state-text {
   background: transparent;
   color: inherit;
   font: inherit;
-  font-size: 0.74rem;
+  font-size: 0.76rem;
 }
 
 .audio-output-wrap option {
@@ -1675,40 +1743,25 @@ body[data-theme='light'] #call-state-text {
 }
 
 body[data-theme='light'] .call-controls button {
-  background: #edf6fc;
-  color: #3e6072;
-  border: 1px solid #c9dce8;
-  box-shadow: 0 4px 12px rgba(130, 171, 193, 0.18);
+  background: rgba(0, 0, 0, 0.08);
+  color: #1a3a4a;
+  backdrop-filter: blur(10px);
 }
 
 body[data-theme='light'] .audio-output-wrap {
-  background: #edf6fc;
-  color: #3e6072;
-  border: 1px solid #c9dce8;
-  box-shadow: 0 4px 12px rgba(130, 171, 193, 0.18);
+  background: rgba(0, 0, 0, 0.06);
+  color: #1a3a4a;
+  border-color: rgba(0, 0, 0, 0.12);
 }
 
 body[data-theme='light'] .call-controls button:hover {
-  background: #e7f2fa;
-  border-color: #b9d1e2;
-}
-
-.call-controls .danger {
-  background: var(--danger);
-  color: #fff;
-  box-shadow: 0 8px 22px rgba(217, 72, 72, 0.36);
-}
-
-#btn-end-call {
-  background: #ef4444;
-  color: #fff;
+  background: rgba(0, 0, 0, 0.12);
 }
 
 body[data-theme='light'] #btn-end-call {
-  background: #f9e0e0;
-  color: #9f3d3d;
-  border: 1px solid #ebc2c2;
-  box-shadow: 0 8px 20px rgba(201, 117, 117, 0.2);
+  background: #ef4444;
+  color: #fff;
+  box-shadow: 0 6px 20px rgba(239, 68, 68, 0.30);
 }
 
 .mobile-only {

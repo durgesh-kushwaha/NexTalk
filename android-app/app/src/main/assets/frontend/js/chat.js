@@ -1195,6 +1195,28 @@ function handleNativeBack() {
 
 window.nextalkHandleNativeBack = handleNativeBack;
 
+/**
+ * Called from Android native bridge when user taps a call notification.
+ * Triggers the incoming call screen in WebRTCManager.
+ */
+function handleIncomingCallFromNotification(fromUsername, videoEnabled) {
+  if (!fromUsername || !window.webRTC) {
+    return;
+  }
+  // If already in a call, ignore
+  if (window.webRTC.callInProgress) {
+    return;
+  }
+  // Synthesize a CALL_REQUEST signal to trigger the incoming call screen
+  window.webRTC.handleSignal({
+    type: 'CALL_REQUEST',
+    fromUsername: fromUsername,
+    videoEnabled: !!videoEnabled,
+  });
+}
+
+window.nextalkHandleIncomingCall = handleIncomingCallFromNotification;
+
 function applySidebarModeFromStorage() {
   const collapsed = localStorage.getItem('nextalk_sidebar_collapsed') === '1';
   appShell.classList.toggle('sidebar-collapsed', collapsed && window.innerWidth > MOBILE_BREAKPOINT);
