@@ -28,7 +28,7 @@ public class ConversationController {
         return ResponseEntity.ok(conversations);
     }
 
-    @GetMapping("/{id}")
+    @GetMapping("/{id:[a-f0-9]{24}}")
     public ResponseEntity<ConversationDTO> getConversation(
             @PathVariable String id,
             @AuthenticationPrincipal UserDetails currentUser) {
