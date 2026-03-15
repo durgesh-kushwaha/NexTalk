@@ -26,12 +26,14 @@ import com.google.auth.oauth2.GoogleCredentials;
 import com.google.firebase.FirebaseApp;
 import com.google.firebase.FirebaseOptions;
 import com.google.firebase.messaging.AndroidConfig;
+import com.google.firebase.messaging.AndroidNotification;
 import com.google.firebase.messaging.BatchResponse;
 import com.google.firebase.messaging.FirebaseMessaging;
 import com.google.firebase.messaging.FirebaseMessagingException;
 import com.google.firebase.messaging.Message;
 import com.google.firebase.messaging.MessagingErrorCode;
 import com.google.firebase.messaging.MulticastMessage;
+import com.google.firebase.messaging.Notification;
 import com.google.firebase.messaging.WebpushConfig;
 import com.google.firebase.messaging.WebpushNotification;
 import com.google.firebase.messaging.SendResponse;
@@ -258,10 +260,24 @@ public class PushNotificationService {
         Map<String, String> fullData = new HashMap<>(data == null ? Map.of() : data);
         fullData.put("title", title == null ? "" : title);
         fullData.put("body", body == null ? "" : body);
-        fullData.put("channelId", "call".equals(fullData.get("type")) ? "nextalk_calls_v2" : "nextalk_messages_v2");
+        String channelId = "call".equals(fullData.get("type")) ? "nextalk_calls_v2" : "nextalk_messages_v2";
+        fullData.put("channelId", channelId);
+
+        // Top-level Notification payload ensures Android system shows notification
+        // even when app is killed or in battery doze mode
+        Notification fcmNotification = Notification.builder()
+                .setTitle(title)
+                .setBody(body)
+                .build();
 
         AndroidConfig androidConfig = AndroidConfig.builder()
                 .setPriority(AndroidConfig.Priority.HIGH)
+                .setNotification(AndroidNotification.builder()
+                        .setChannelId(channelId)
+                        .setSound("default")
+                        .setDefaultVibrateTimings(true)
+                        .setPriority(AndroidNotification.Priority.MAX)
+                        .build())
                 .build();
 
         WebpushConfig webpushConfig = WebpushConfig.builder()
@@ -276,6 +292,7 @@ public class PushNotificationService {
         if (validTokens.size() == 1) {
             Message message = Message.builder()
                     .setToken(validTokens.get(0))
+                    .setNotification(fcmNotification)
                     .setAndroidConfig(androidConfig)
                     .setWebpushConfig(webpushConfig)
                     .putAllData(fullData)
@@ -294,6 +311,7 @@ public class PushNotificationService {
 
         MulticastMessage message = MulticastMessage.builder()
                 .addAllTokens(validTokens)
+                .setNotification(fcmNotification)
                 .setAndroidConfig(androidConfig)
                 .setWebpushConfig(webpushConfig)
                 .putAllData(fullData)

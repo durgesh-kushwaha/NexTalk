@@ -161,14 +161,24 @@
     </div>
   </div>
 
-  <div class="call-notification" id="call-notification">
-    <div>
-      <strong id="call-notif-name">Unknown</strong>
-      <p id="call-notif-type">Incoming call</p>
+  <div class="incoming-call-screen" id="call-notification">
+    <div class="incoming-call-bg"></div>
+    <div class="incoming-call-content">
+      <div class="incoming-call-avatar" id="incoming-call-avatar">
+        <span id="incoming-call-initial">?</span>
+      </div>
+      <strong class="incoming-call-name" id="call-notif-name">Unknown</strong>
+      <p class="incoming-call-type" id="call-notif-type">Incoming call</p>
     </div>
-    <div class="call-notif-actions">
-      <button id="accept-call-btn">Accept</button>
-      <button id="reject-call-btn">Decline</button>
+    <div class="incoming-call-actions">
+      <button class="incoming-btn decline" id="reject-call-btn">
+        <span class="material-symbols-rounded">call_end</span>
+        <span>Decline</span>
+      </button>
+      <button class="incoming-btn accept" id="accept-call-btn">
+        <span class="material-symbols-rounded">call</span>
+        <span>Accept</span>
+      </button>
     </div>
   </div>
 

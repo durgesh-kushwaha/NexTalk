@@ -2644,16 +2644,25 @@ async function init() {
     setMobileView('list');
   }
 
+  // OFFLINE-FIRST: Show cached conversations immediately
   if (!hasLoadedOfflineBootstrap) {
     const cachedConversations = await loadOfflineConversations();
     if (cachedConversations.length) {
       conversationsCache = cachedConversations;
       refreshFilteredList();
       hasLoadedOfflineBootstrap = true;
+      // Open first conversation on desktop
+      if (!currentConversation && cachedConversations.length && !isMobileScreen()) {
+        const firstConv = cachedConversations[0];
+        if (firstConv) {
+          await openConversation(firstConv);
+        }
+      }
     }
   }
 
-  await loadConversations(false);
+  // Fetch from server in background (non-blocking)
+  loadConversations(false).catch(() => {});
   connectWebSocket();
   if (!refreshIntervalId) {
     refreshIntervalId = setInterval(() => loadConversations(true), 15000);

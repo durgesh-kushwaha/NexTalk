@@ -819,6 +819,13 @@ class WebRTCManager {
     this.applyAudioAvatar();
     this.notifName.textContent = this.callPartner || 'Unknown';
     this.notifType.textContent = this.isVideoCall ? 'Incoming video call' : 'Incoming audio call';
+
+    // Set avatar initial for full-screen incoming call
+    const incomingInitial = document.getElementById('incoming-call-initial');
+    if (incomingInitial) {
+      incomingInitial.textContent = this.getInitial(this.callPartner);
+    }
+
     this.notification.classList.add('open');
     this.startIncomingRingtone();
 
