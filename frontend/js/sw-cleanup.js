@@ -14,14 +14,9 @@
     }
   };
 
-  const unregisterWorkers = async function () {
-    try {
-      const regs = await navigator.serviceWorker.getRegistrations();
-      await Promise.all(regs.map((reg) => reg.unregister()));
-    } catch (error) {
-    }
-  };
-
   clearCaches();
-  unregisterWorkers();
+
+  navigator.serviceWorker.register('/sw.js', { scope: '/' }).catch(function () {
+    // registration failed — push notifications won't work in background
+  });
 })();

@@ -23,19 +23,29 @@ class NextalkFirebaseMessagingService : FirebaseMessagingService() {
     companion object {
         private const val CHANNEL_MESSAGES = "nextalk_messages_v2"
         private const val CHANNEL_CALLS = "nextalk_calls_v2"
-        private const val DEDUPE_WINDOW_MS = 900L
+        private const val DEDUPE_WINDOW_MS = 3000L
         private val recentMessageSignals = ConcurrentHashMap<String, Long>()
     }
 
     override fun onMessageReceived(message: RemoteMessage) {
         super.onMessageReceived(message)
 
+        // When app is in foreground, WebView STOMP handles in-app notifications
+        if (MainActivity.isAppInForeground) {
+            return
+        }
+
         ensureChannels()
 
         val data = message.data
         val type = data["type"] ?: "message"
-        val title = message.notification?.title ?: data["title"] ?: if (type == "call") "Incoming call" else "New message"
-        val body = message.notification?.body ?: data["body"] ?: if (type == "call") "Someone is calling you" else "You have a new message"
+        // Data-only payloads: title and body are in the data map
+        val title = data["title"]?.takeIf { it.isNotBlank() }
+            ?: message.notification?.title
+            ?: if (type == "call") "Incoming call" else "New message"
+        val body = data["body"]?.takeIf { it.isNotBlank() }
+            ?: message.notification?.body
+            ?: if (type == "call") "Someone is calling you" else "You have a new message"
         val notificationTag = buildNotificationTag(type, data)
 
         val dedupeId = message.messageId

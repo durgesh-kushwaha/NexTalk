@@ -512,13 +512,7 @@ class MainActivity : AppCompatActivity() {
                     body?.takeIf { it.isNotBlank() } ?: "You have a new notification"
                 )
             )
-            .setPriority(
-                if (kind == "call") {
-                    NotificationCompat.PRIORITY_HIGH
-                } else {
-                    NotificationCompat.PRIORITY_DEFAULT
-                }
-            )
+            .setPriority(NotificationCompat.PRIORITY_HIGH)
             .setCategory(
                 if (kind == "call") {
                     NotificationCompat.CATEGORY_CALL

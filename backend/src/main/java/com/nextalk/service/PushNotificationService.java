@@ -26,14 +26,14 @@ import com.google.auth.oauth2.GoogleCredentials;
 import com.google.firebase.FirebaseApp;
 import com.google.firebase.FirebaseOptions;
 import com.google.firebase.messaging.AndroidConfig;
-import com.google.firebase.messaging.AndroidNotification;
 import com.google.firebase.messaging.BatchResponse;
 import com.google.firebase.messaging.FirebaseMessaging;
 import com.google.firebase.messaging.FirebaseMessagingException;
 import com.google.firebase.messaging.Message;
 import com.google.firebase.messaging.MessagingErrorCode;
 import com.google.firebase.messaging.MulticastMessage;
-import com.google.firebase.messaging.Notification;
+import com.google.firebase.messaging.WebpushConfig;
+import com.google.firebase.messaging.WebpushNotification;
 import com.google.firebase.messaging.SendResponse;
 import com.nextalk.model.User;
 import com.nextalk.repository.UserRepository;
@@ -254,22 +254,30 @@ public class PushNotificationService {
             return;
         }
 
+        // Data-only payload: title and body go in data map so apps control display
+        Map<String, String> fullData = new HashMap<>(data == null ? Map.of() : data);
+        fullData.put("title", title == null ? "" : title);
+        fullData.put("body", body == null ? "" : body);
+
         AndroidConfig androidConfig = AndroidConfig.builder()
                 .setPriority(AndroidConfig.Priority.HIGH)
-                .setNotification(
-                    AndroidNotification.builder()
-                        .setChannelId("call".equals(data == null ? "" : data.get("type")) ? "nextalk_calls_v2" : "nextalk_messages_v2")
-                        .setSound("default")
-                        .build()
-                )
+                .build();
+
+        WebpushConfig webpushConfig = WebpushConfig.builder()
+                .setNotification(WebpushNotification.builder()
+                        .setTitle(title)
+                        .setBody(body)
+                        .setIcon("/icons/icon-192.png")
+                        .setTag("call".equals(fullData.get("type")) ? "nextalk-call" : "nextalk-msg-" + fullData.getOrDefault("conversationId", ""))
+                        .build())
                 .build();
 
         if (validTokens.size() == 1) {
             Message message = Message.builder()
                     .setToken(validTokens.get(0))
-                    .setNotification(Notification.builder().setTitle(title).setBody(body).build())
                     .setAndroidConfig(androidConfig)
-                    .putAllData(data == null ? Map.of() : data)
+                    .setWebpushConfig(webpushConfig)
+                    .putAllData(fullData)
                     .build();
             try {
                 FirebaseMessaging.getInstance(firebaseApp).send(message);
@@ -285,9 +293,9 @@ public class PushNotificationService {
 
         MulticastMessage message = MulticastMessage.builder()
                 .addAllTokens(validTokens)
-                .setNotification(Notification.builder().setTitle(title).setBody(body).build())
                 .setAndroidConfig(androidConfig)
-                .putAllData(data == null ? Map.of() : data)
+                .setWebpushConfig(webpushConfig)
+                .putAllData(fullData)
                 .build();
 
         try {

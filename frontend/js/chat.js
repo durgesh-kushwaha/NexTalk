@@ -1452,6 +1452,78 @@ async function runNativeFcmDiagnostics() {
   }
 }
 
+let webPushRegistered = false;
+
+async function registerWebPushToken() {
+  if (hasAndroidBridge()) {
+    return;
+  }
+  if (webPushRegistered) {
+    return;
+  }
+  if (typeof firebase === 'undefined' || !firebase.messaging) {
+    return;
+  }
+
+  try {
+    const firebaseConfig = {
+      apiKey: 'AIzaSyBxLYNdJBqSJbKG8j185JdQ3RJw4MS_K24',
+      authDomain: 'nextalk-ff7ad.firebaseapp.com',
+      projectId: 'nextalk-ff7ad',
+      storageBucket: 'nextalk-ff7ad.firebasestorage.app',
+      messagingSenderId: '1007904785580',
+      appId: '1:1007904785580:web:nextalk-web'
+    };
+
+    if (!firebase.apps.length) {
+      firebase.initializeApp(firebaseConfig);
+    }
+
+    const messaging = firebase.messaging();
+
+    let swRegistration = null;
+    if ('serviceWorker' in navigator) {
+      try {
+        swRegistration = await navigator.serviceWorker.register('/sw.js', { scope: '/' });
+        await navigator.serviceWorker.ready;
+      } catch (swError) {
+        // service worker registration failed
+      }
+    }
+
+    const permission = await Notification.requestPermission();
+    if (permission !== 'granted') {
+      return;
+    }
+
+    const tokenOptions = {};
+    if (swRegistration) {
+      tokenOptions.serviceWorkerRegistration = swRegistration;
+    }
+
+    const fcmToken = await messaging.getToken(tokenOptions);
+    if (!fcmToken) {
+      return;
+    }
+
+    await api.post('/devices/fcm-token', { token: fcmToken });
+    webPushRegistered = true;
+
+    messaging.onMessage((payload) => {
+      if (document.hasFocus() && !document.hidden) {
+        return;
+      }
+      const data = payload.data || {};
+      const title = payload.notification?.title || data.title || 'NexTalk';
+      const body = payload.notification?.body || data.body || 'You have a new message';
+      const tag = data.type === 'call' ? 'nextalk-call' : 'nextalk-msg-' + (data.conversationId || 'default');
+      showDesktopNotification(title, body, tag, data.type || 'message');
+    });
+  } catch (error) {
+    // web push registration failed
+  }
+}
+
 async function loadRuntimeClientConfig() {
   try {
     const config = await api.get('/config/client');
@@ -2533,6 +2605,7 @@ async function init() {
   await loadRuntimeClientConfig();
   registerNativePushToken();
   runNativeFcmDiagnostics();
+  registerWebPushToken();
   clearReplyTarget();
   syncNotificationControls();
   updateNotifyButton();
