@@ -176,6 +176,18 @@ class NextalkPollingService : Service() {
                 return
             }
 
+            // Poll for new messages
+            pollMessages(backendOrigin, authToken)
+
+            // Poll for pending calls
+            pollPendingCalls(backendOrigin, authToken)
+        } catch (e: Exception) {
+            Log.d(TAG, "Poll error: ${e.message}")
+        }
+    }
+
+    private fun pollMessages(backendOrigin: String, authToken: String) {
+        try {
             val url = URL("$backendOrigin/api/conversations")
             val connection = url.openConnection() as HttpURLConnection
             connection.requestMethod = "GET"
@@ -186,7 +198,6 @@ class NextalkPollingService : Service() {
 
             val responseCode = connection.responseCode
             if (responseCode != 200) {
-                Log.d(TAG, "Poll failed with code $responseCode")
                 connection.disconnect()
                 return
             }
@@ -198,7 +209,84 @@ class NextalkPollingService : Service() {
 
             processConversations(response)
         } catch (e: Exception) {
-            Log.d(TAG, "Poll error: ${e.message}")
+            Log.d(TAG, "Message poll error: ${e.message}")
+        }
+    }
+
+    private fun pollPendingCalls(backendOrigin: String, authToken: String) {
+        try {
+            val url = URL("$backendOrigin/api/calls/pending")
+            val connection = url.openConnection() as HttpURLConnection
+            connection.requestMethod = "GET"
+            connection.setRequestProperty("Authorization", "Bearer $authToken")
+            connection.setRequestProperty("Content-Type", "application/json")
+            connection.connectTimeout = 5000
+            connection.readTimeout = 5000
+
+            val responseCode = connection.responseCode
+            if (responseCode != 200) {
+                connection.disconnect()
+                return
+            }
+
+            val reader = BufferedReader(InputStreamReader(connection.inputStream))
+            val response = reader.readText()
+            reader.close()
+            connection.disconnect()
+
+            val json = JSONObject(response)
+            val hasPendingCall = json.optBoolean("hasPendingCall", false)
+            if (hasPendingCall) {
+                val fromUsername = json.optString("fromUsername", "Unknown")
+                val videoEnabled = json.optBoolean("videoEnabled", false)
+                showCallNotification(fromUsername, videoEnabled)
+            }
+        } catch (e: Exception) {
+            Log.d(TAG, "Call poll error: ${e.message}")
+        }
+    }
+
+    private fun showCallNotification(fromUsername: String, videoEnabled: Boolean) {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            val granted = ContextCompat.checkSelfPermission(
+                this, Manifest.permission.POST_NOTIFICATIONS
+            ) == PackageManager.PERMISSION_GRANTED
+            if (!granted) return
+        }
+
+        val notificationId = ("poll-call-$fromUsername".hashCode()) and 0x7fffffff
+        val callType = if (videoEnabled) "video" else "audio"
+
+        val intent = Intent(this, MainActivity::class.java).apply {
+            flags = Intent.FLAG_ACTIVITY_CLEAR_TOP or Intent.FLAG_ACTIVITY_SINGLE_TOP
+            putExtra("nextalk_incoming_call", true)
+            putExtra("nextalk_call_from", fromUsername)
+            putExtra("nextalk_call_video", videoEnabled)
+        }
+
+        val pendingIntent = PendingIntent.getActivity(
+            this, notificationId, intent,
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+        )
+
+        val builder = NotificationCompat.Builder(this, CHANNEL_CALLS)
+            .setSmallIcon(android.R.drawable.stat_sys_phone_call)
+            .setContentTitle(fromUsername)
+            .setContentText("Incoming $callType call")
+            .setContentIntent(pendingIntent)
+            .setFullScreenIntent(pendingIntent, true)
+            .setAutoCancel(true)
+            .setPriority(NotificationCompat.PRIORITY_MAX)
+            .setCategory(NotificationCompat.CATEGORY_CALL)
+            .setDefaults(NotificationCompat.DEFAULT_ALL)
+            .setVisibility(NotificationCompat.VISIBILITY_PUBLIC)
+            .setOngoing(true)
+
+        try {
+            NotificationManagerCompat.from(this).notify(notificationId, builder.build())
+            Log.d(TAG, "Call notification: $fromUsername ($callType)")
+        } catch (e: SecurityException) {
+            Log.d(TAG, "Notification permission denied")
         }
     }
 

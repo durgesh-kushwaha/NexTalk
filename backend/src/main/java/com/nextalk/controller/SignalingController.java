@@ -12,6 +12,7 @@ import org.springframework.stereotype.Controller;
 import com.nextalk.dto.SendMessageRequest;
 import com.nextalk.dto.SignalMessage;
 import com.nextalk.service.MessageService;
+import com.nextalk.service.PendingCallService;
 import com.nextalk.service.PushNotificationService;
 
 @Controller
@@ -25,6 +26,9 @@ public class SignalingController {
 
     @Autowired
     private PushNotificationService pushNotificationService;
+
+    @Autowired
+    private PendingCallService pendingCallService;
 
 
     @MessageMapping("/chat/{conversationId}")
@@ -69,6 +73,17 @@ public class SignalingController {
                 signal.getFromUsername(),
                 Boolean.TRUE.equals(signal.getVideoEnabled())
             );
+            // Store pending call for REST polling (FCM bypass)
+            pendingCallService.storePendingCall(
+                signal.getToUsername(),
+                signal.getFromUsername(),
+                Boolean.TRUE.equals(signal.getVideoEnabled())
+            );
+        }
+
+        if (signal.getType() == SignalMessage.SignalType.CALL_REJECTED
+            || signal.getType() == SignalMessage.SignalType.CALL_ACCEPTED) {
+            pendingCallService.clearPendingCall(principal.getName());
         }
     }
 }
