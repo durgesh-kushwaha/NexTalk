@@ -128,6 +128,13 @@ public class MessageService {
             message.getId()
         );
 
+        // Auto-accept: if this is a PRIVATE chat, not yet accepted, and the sender is not the creator
+        if (conversation.getType() == Conversation.ConversationType.PRIVATE
+                && !conversation.isAccepted()
+                && !sender.getId().equals(conversation.getCreatedById())) {
+            conversationService.acceptConversation(conversation.getId());
+        }
+
         return dto;
     }
 

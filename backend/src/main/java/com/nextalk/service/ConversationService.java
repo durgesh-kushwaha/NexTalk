@@ -82,6 +82,7 @@ public class ConversationService {
                 .type(Conversation.ConversationType.PRIVATE)
                 .createdById(requestingUser.getId())
                 .createdAt(LocalDateTime.now())
+                .accepted(false)
                 .participants(List.of(
                     buildParticipant(requestingUser),
                     buildParticipant(targetUser)
@@ -90,6 +91,50 @@ public class ConversationService {
         conversation = conversationRepository.save(conversation);
 
         return toConversationDTO(conversation, null, null);
+    }
+
+    public ConversationDTO createGroupConversation(String creatorUsername, String groupName, List<String> participantIds) {
+        User creator = getUserEntity(creatorUsername);
+
+        if (groupName == null || groupName.trim().isEmpty()) {
+            throw new ApiException(HttpStatus.BAD_REQUEST, "Group name is required");
+        }
+        if (participantIds == null || participantIds.isEmpty()) {
+            throw new ApiException(HttpStatus.BAD_REQUEST, "At least one participant is required");
+        }
+
+        List<ConversationParticipant> participants = new ArrayList<>();
+        participants.add(buildParticipant(creator));
+
+        for (String userId : participantIds) {
+            if (userId.equals(creator.getId())) {
+                continue;
+            }
+            User member = userRepository.findById(userId)
+                    .orElseThrow(() -> new ApiException(HttpStatus.NOT_FOUND, "User not found: " + userId));
+            participants.add(buildParticipant(member));
+        }
+
+        Conversation conversation = Conversation.builder()
+                .type(Conversation.ConversationType.GROUP)
+                .name(groupName.trim())
+                .createdById(creator.getId())
+                .createdAt(LocalDateTime.now())
+                .accepted(true)
+                .participants(participants)
+                .build();
+        conversation = conversationRepository.save(conversation);
+
+        return toConversationDTO(conversation, null, null);
+    }
+
+    public void acceptConversation(String conversationId) {
+        Conversation conversation = conversationRepository.findById(conversationId)
+                .orElseThrow(() -> new ApiException(HttpStatus.NOT_FOUND, "Conversation not found"));
+        if (!conversation.isAccepted()) {
+            conversation.setAccepted(true);
+            conversationRepository.save(conversation);
+        }
     }
 
 

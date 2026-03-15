@@ -28,6 +28,8 @@ public class ConversationDTO {
 
     private LocalDateTime createdAt;
 
+    private boolean accepted;
+
         public static ConversationDTO from(
             Conversation conversation,
             List<UserDTO> participantDTOs,
@@ -42,6 +44,7 @@ public class ConversationDTO {
                 .lastMessage(lastMsg)
                 .lastMessageAt(lastMsgAt)
                 .createdAt(conversation.getCreatedAt())
+                .accepted(conversation.isAccepted())
                 .build();
     }
 }

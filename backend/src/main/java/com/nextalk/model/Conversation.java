@@ -33,6 +33,9 @@ public class Conversation {
     @Builder.Default
     private List<ConversationParticipant> participants = new ArrayList<>();
 
+    @Builder.Default
+    private boolean accepted = true;
+
     public enum ConversationType {
         PRIVATE,
         GROUP

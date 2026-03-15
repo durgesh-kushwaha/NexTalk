@@ -36,9 +36,40 @@
         <input type="text" id="search-input" placeholder="Search conversations" />
       </div>
 
-      <div class="conversation-list" id="conversation-list">
-        <div class="placeholder">Loading conversations...</div>
+      <div class="tab-panels">
+        <div class="tab-panel active" id="tab-chats-panel">
+          <div class="conversation-list" id="conversation-list">
+            <div class="placeholder">Loading conversations...</div>
+          </div>
+        </div>
+
+        <div class="tab-panel" id="tab-calls-panel">
+          <div class="call-history-list" id="call-history-list">
+            <div class="placeholder">Loading call history...</div>
+          </div>
+        </div>
+
+        <div class="tab-panel" id="tab-groups-panel">
+          <div class="conversation-list" id="group-list">
+            <div class="placeholder">Loading groups...</div>
+          </div>
+        </div>
       </div>
+
+      <nav class="bottom-tabs" id="bottom-tabs">
+        <button class="tab-btn active" data-tab="chats" id="tab-chats-btn">
+          <span class="material-symbols-rounded">chat</span>
+          <span>Chats</span>
+        </button>
+        <button class="tab-btn" data-tab="calls" id="tab-calls-btn">
+          <span class="material-symbols-rounded">call</span>
+          <span>Calls</span>
+        </button>
+        <button class="tab-btn" data-tab="groups" id="tab-groups-btn">
+          <span class="material-symbols-rounded">group</span>
+          <span>Groups</span>
+        </button>
+      </nav>
     </aside>
 
     <main class="chat-panel">
@@ -217,6 +248,20 @@
       </div>
       <input type="text" id="participant-search-input" placeholder="Search users by name or username" />
       <div class="user-search-results" id="participant-search-results"></div>
+    </div>
+  </div>
+
+  <div class="modal-overlay" id="create-group-modal">
+    <div class="modal">
+      <div class="modal-head">
+        <h3>Create Group</h3>
+        <button class="ghost-btn" id="close-create-group-modal">Close</button>
+      </div>
+      <input type="text" id="group-name-input" placeholder="Group name" />
+      <input type="text" id="group-member-search-input" placeholder="Search users to add" />
+      <div class="selected-members" id="selected-members"></div>
+      <div class="user-search-results" id="group-member-search-results"></div>
+      <button class="primary-btn" id="create-group-submit-btn">Create Group</button>
     </div>
   </div>
 

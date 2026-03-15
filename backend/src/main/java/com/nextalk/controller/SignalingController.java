@@ -11,6 +11,8 @@ import org.springframework.stereotype.Controller;
 
 import com.nextalk.dto.SendMessageRequest;
 import com.nextalk.dto.SignalMessage;
+import com.nextalk.model.CallLog;
+import com.nextalk.service.CallLogService;
 import com.nextalk.service.MessageService;
 import com.nextalk.service.PendingCallService;
 import com.nextalk.service.PushNotificationService;
@@ -29,6 +31,9 @@ public class SignalingController {
 
     @Autowired
     private PendingCallService pendingCallService;
+
+    @Autowired
+    private CallLogService callLogService;
 
 
     @MessageMapping("/chat/{conversationId}")
@@ -79,11 +84,29 @@ public class SignalingController {
                 signal.getFromUsername(),
                 Boolean.TRUE.equals(signal.getVideoEnabled())
             );
+            // Log call as MISSED initially (will be updated on accept/reject/end)
+            callLogService.createCallLog(
+                signal.getFromUsername(),
+                signal.getToUsername(),
+                Boolean.TRUE.equals(signal.getVideoEnabled())
+            );
         }
 
-        if (signal.getType() == SignalMessage.SignalType.CALL_REJECTED
-            || signal.getType() == SignalMessage.SignalType.CALL_ACCEPTED) {
+        if (signal.getType() == SignalMessage.SignalType.CALL_ACCEPTED) {
             pendingCallService.clearPendingCall(principal.getName());
+            callLogService.markCallAnswered(signal.getToUsername(), principal.getName());
+        }
+
+        if (signal.getType() == SignalMessage.SignalType.CALL_REJECTED) {
+            pendingCallService.clearPendingCall(principal.getName());
+            callLogService.updateCallStatus(
+                signal.getToUsername(), principal.getName(), CallLog.CallStatus.DECLINED
+            );
+        }
+
+        if (signal.getType() == SignalMessage.SignalType.CALL_ENDED) {
+            callLogService.markCallEnded(principal.getName(), signal.getToUsername());
         }
     }
 }
+

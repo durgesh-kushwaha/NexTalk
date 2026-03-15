@@ -10,6 +10,7 @@ import org.springframework.security.core.userdetails.UserDetails;
 import org.springframework.web.bind.annotation.*;
 
 import java.util.List;
+import java.util.Map;
 
 @RestController
 @RequestMapping("/api/conversations")
@@ -46,4 +47,18 @@ public class ConversationController {
         );
         return ResponseEntity.status(HttpStatus.OK).body(conversation);
     }
+
+    @SuppressWarnings("unchecked")
+    @PostMapping("/group")
+    public ResponseEntity<ConversationDTO> createGroup(
+            @RequestBody Map<String, Object> body,
+            @AuthenticationPrincipal UserDetails currentUser) {
+        String groupName = (String) body.get("name");
+        List<String> participantIds = (List<String>) body.get("participantIds");
+        ConversationDTO conversation = conversationService.createGroupConversation(
+            currentUser.getUsername(), groupName, participantIds
+        );
+        return ResponseEntity.status(HttpStatus.CREATED).body(conversation);
+    }
 }
+
