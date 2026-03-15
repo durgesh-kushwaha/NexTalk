@@ -29,6 +29,9 @@ public class DeviceController {
             @Valid @RequestBody RegisterFcmTokenRequest request,
             @AuthenticationPrincipal UserDetails currentUser
     ) {
+        if (currentUser == null || currentUser.getUsername() == null || currentUser.getUsername().isBlank()) {
+            return ResponseEntity.status(401).build();
+        }
         pushNotificationService.registerToken(currentUser.getUsername(), request.getToken());
         return ResponseEntity.noContent().build();
     }
@@ -37,6 +40,9 @@ public class DeviceController {
     public ResponseEntity<Map<String, Object>> getFcmDebug(
             @AuthenticationPrincipal UserDetails currentUser
     ) {
+        if (currentUser == null || currentUser.getUsername() == null || currentUser.getUsername().isBlank()) {
+            return ResponseEntity.status(401).build();
+        }
         String username = currentUser.getUsername();
         int tokenCount = pushNotificationService.getRegisteredTokenCount(username);
         Map<String, Object> diagnostics = pushNotificationService.getFcmDiagnostics();
