@@ -2,8 +2,11 @@ package com.nextalk.controller;
 
 import java.util.Map;
 
+import jakarta.annotation.PostConstruct;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.ResponseEntity;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.security.core.userdetails.UserDetails;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -21,8 +24,15 @@ import jakarta.validation.Valid;
 @RequestMapping("/api/devices")
 public class DeviceController {
 
+    private static final Logger log = LoggerFactory.getLogger(DeviceController.class);
+
     @Autowired
     private PushNotificationService pushNotificationService;
+
+    @PostConstruct
+    public void onInit() {
+        log.info("DeviceController initialized with routes: /api/devices/fcm-token, /api/devices/fcm-debug");
+    }
 
     @PostMapping("/fcm-token")
     public ResponseEntity<Void> registerFcmToken(
