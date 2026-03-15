@@ -1639,19 +1639,20 @@ body[data-theme='light'] #call-state-text {
   color: rgba(255, 255, 255, 0.85);
 }
 
-/* WhatsApp-style call controls — centered round buttons at bottom */
+/* WhatsApp-style call controls — flex-wrap round buttons at bottom */
 .call-controls {
   position: absolute;
   left: 0;
   right: 0;
   bottom: 0;
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
   justify-content: center;
-  gap: 20px;
-  padding: 24px 20px calc(28px + var(--safe-bottom, 0px));
+  gap: 16px;
+  padding: 20px 24px calc(28px + var(--safe-bottom, 0px));
   z-index: 5;
-  background: linear-gradient(to top, rgba(0,0,0,0.60) 0%, transparent 100%);
+  background: linear-gradient(to top, rgba(0,0,0,0.70) 0%, rgba(0,0,0,0.35) 60%, transparent 100%);
 }
 
 .call-controls button {
@@ -1662,106 +1663,79 @@ body[data-theme='light'] #call-state-text {
   font: inherit;
   font-size: 0;
   cursor: pointer;
-  background: rgba(255, 255, 255, 0.15);
-  backdrop-filter: blur(10px);
-  -webkit-backdrop-filter: blur(10px);
+  background: rgba(255, 255, 255, 0.18);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
   color: #fff;
   display: flex;
   flex-direction: column;
   align-items: center;
   justify-content: center;
   gap: 2px;
-  transition: transform 0.15s ease, background 0.15s ease;
+  transition: transform 0.12s ease, background 0.12s ease;
 }
 
 .call-controls button:active {
-  transform: scale(0.90);
+  transform: scale(0.88);
 }
 
 .call-controls button .material-symbols-rounded {
-  font-size: 26px;
+  font-size: 24px;
 }
 
 .call-controls button span:last-child {
-  font-size: 0.6rem;
+  font-size: 0.58rem;
   font-weight: 600;
-  letter-spacing: 0.02em;
-  opacity: 0.9;
+  letter-spacing: 0.03em;
+  opacity: 0.85;
 }
 
-/* End call button — red, larger */
+/* Active/toggled state — white background, dark icon */
+.call-controls button[data-active="true"] {
+  background: rgba(255, 255, 255, 0.92);
+  color: #1a1a1a;
+}
+
+/* End call button — large red with glow */
 #btn-end-call {
   width: 64px;
   height: 64px;
   background: #ef4444;
   color: #fff;
-  box-shadow: 0 6px 20px rgba(239, 68, 68, 0.40);
+  box-shadow: 0 4px 20px rgba(239, 68, 68, 0.45);
+}
+
+#btn-end-call:active {
+  background: #dc2626;
 }
 
 #btn-end-call .material-symbols-rounded {
-  font-size: 30px;
+  font-size: 28px;
 }
 
-/* Muted / camera-off states */
-.call-controls button[data-active="true"] {
-  background: rgba(255, 255, 255, 0.90);
+/* Bluetooth button — same style, slightly tinted */
+#btn-bluetooth {
+  background: rgba(96, 165, 250, 0.25);
+}
+
+#btn-bluetooth[data-active="true"] {
+  background: rgba(96, 165, 250, 0.90);
   color: #1a1a1a;
 }
 
-.audio-output-wrap {
-  min-width: 160px;
-  height: 44px;
-  border-radius: 999px;
-  border: 1px solid rgba(255, 255, 255, 0.20);
-  background: rgba(255, 255, 255, 0.12);
-  backdrop-filter: blur(10px);
-  -webkit-backdrop-filter: blur(10px);
-  color: #fff;
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  padding: 0 12px;
-}
-
-.audio-output-wrap .material-symbols-rounded {
-  font-size: 20px;
-}
-
-.audio-output-wrap select {
-  flex: 1;
-  min-width: 0;
-  border: 0;
-  outline: 0;
-  background: transparent;
-  color: inherit;
-  font: inherit;
-  font-size: 0.76rem;
-}
-
-.audio-output-wrap option {
-  color: #0f2a3a;
-}
-
 body[data-theme='light'] .call-controls button {
-  background: rgba(0, 0, 0, 0.08);
+  background: rgba(0, 0, 0, 0.10);
   color: #1a3a4a;
-  backdrop-filter: blur(10px);
 }
 
-body[data-theme='light'] .audio-output-wrap {
-  background: rgba(0, 0, 0, 0.06);
-  color: #1a3a4a;
-  border-color: rgba(0, 0, 0, 0.12);
-}
-
-body[data-theme='light'] .call-controls button:hover {
-  background: rgba(0, 0, 0, 0.12);
+body[data-theme='light'] .call-controls button[data-active="true"] {
+  background: rgba(0, 0, 0, 0.75);
+  color: #fff;
 }
 
 body[data-theme='light'] #btn-end-call {
   background: #ef4444;
   color: #fff;
-  box-shadow: 0 6px 20px rgba(239, 68, 68, 0.30);
 }
 
 .mobile-only {

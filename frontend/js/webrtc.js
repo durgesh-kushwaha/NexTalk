@@ -42,8 +42,8 @@ class WebRTCManager {
     this.btnToggleCamera = document.getElementById('btn-toggle-camera');
     this.btnSwitchCamera = document.getElementById('btn-switch-camera');
     this.btnAddParticipant = document.getElementById('btn-add-participant');
-    this.audioOutputWrap = document.getElementById('audio-output-wrap');
-    this.audioOutputSelect = document.getElementById('audio-output-select');
+    this.btnToggleSpeaker = document.getElementById('btn-toggle-speaker');
+    this.btnBluetooth = document.getElementById('btn-bluetooth');
     this.requestTimeoutId = null;
     this.callRequestRetryTimer = null;
     this.callRequestRetried = false;
@@ -63,17 +63,18 @@ class WebRTCManager {
     document.getElementById('accept-call-btn').addEventListener('click', () => this.acceptCall());
     document.getElementById('reject-call-btn').addEventListener('click', () => this.rejectCall());
     document.getElementById('btn-toggle-mute').addEventListener('click', () => this.toggleMute());
-    this.btnToggleCamera.addEventListener('click', () => this.handleThirdControl());
+    this.btnToggleCamera.addEventListener('click', () => this.toggleCamera());
     this.btnSwitchCamera.addEventListener('click', () => this.switchCamera());
+    if (this.btnToggleSpeaker) {
+      this.btnToggleSpeaker.addEventListener('click', () => this.toggleSpeaker());
+    }
+    if (this.btnBluetooth) {
+      this.btnBluetooth.addEventListener('click', () => this.selectBluetoothOutput());
+    }
     if (this.btnAddParticipant) {
       this.btnAddParticipant.addEventListener('click', () => this.inviteParticipant());
     }
     document.getElementById('btn-end-call').addEventListener('click', () => this.endCall());
-    if (this.audioOutputSelect) {
-      this.audioOutputSelect.addEventListener('change', async (event) => {
-        await this.selectAudioOutput(event.target.value);
-      });
-    }
 
     const unlockAudio = () => {
       this.ensureRingtoneContext();
@@ -325,18 +326,23 @@ class WebRTCManager {
   }
 
   updateCallControlsForMode() {
-    if (this.isVideoCall) {
-      this.setControlLabel('btn-toggle-camera', this.isCameraOff ? 'videocam_off' : 'videocam', this.isCameraOff ? 'Camera Off' : 'Camera');
-      this.btnSwitchCamera.hidden = false;
-      if (this.audioOutputWrap) {
-        this.audioOutputWrap.hidden = true;
-      }
-      return;
+    const isVideo = this.isVideoCall;
+    // Camera button
+    this.setControlLabel('btn-toggle-camera', this.isCameraOff ? 'videocam_off' : 'videocam', this.isCameraOff ? 'Cam Off' : 'Camera');
+    if (this.btnToggleCamera) {
+      this.btnToggleCamera.dataset.active = this.isCameraOff ? 'true' : 'false';
     }
-
-    this.setControlLabel('btn-toggle-camera', this.isSpeakerOn ? 'volume_up' : 'hearing', this.isSpeakerOn ? 'Speaker On' : 'Speaker Off');
-    this.btnSwitchCamera.hidden = true;
-    this.refreshAudioOutputOptions();
+    // Camera switch — only visible for video calls on mobile
+    if (this.btnSwitchCamera) {
+      this.btnSwitchCamera.hidden = !isVideo;
+    }
+    // Speaker toggle — visible for audio calls
+    if (this.btnToggleSpeaker) {
+      this.setControlLabel('btn-toggle-speaker', this.isSpeakerOn ? 'volume_up' : 'hearing', this.isSpeakerOn ? 'Speaker' : 'Earpiece');
+      this.btnToggleSpeaker.dataset.active = this.isSpeakerOn ? 'true' : 'false';
+    }
+    // Bluetooth — only visible when bluetooth device is available
+    this.updateBluetoothVisibility();
   }
 
   mapAudioOutputLabel(device) {
@@ -431,21 +437,7 @@ class WebRTCManager {
   }
 
   async refreshAudioOutputOptions() {
-    if (this.isVideoCall) {
-      if (this.audioOutputWrap) {
-        this.audioOutputWrap.hidden = true;
-      }
-      return;
-    }
-
-    const androidDevices = this.getAndroidOutputDevices();
-    if (androidDevices.length) {
-      this.renderAudioOutputOptions(androidDevices);
-      return;
-    }
-
-    const browserDevices = await this.getBrowserOutputDevices();
-    this.renderAudioOutputOptions(browserDevices);
+    // No longer uses dropdown — handled by toggle button
   }
 
   async selectAudioOutput(deviceId) {
@@ -644,6 +636,30 @@ class WebRTCManager {
       return;
     }
     this.toggleSpeaker();
+  }
+
+  updateBluetoothVisibility() {
+    if (!this.btnBluetooth) return;
+    const androidDevices = this.getAndroidOutputDevices();
+    const hasBt = androidDevices.some((d) => {
+      const label = String(d.label || d.kind || '').toLowerCase();
+      return label.includes('bluetooth') || label.includes('bt');
+    });
+    this.btnBluetooth.hidden = !hasBt;
+  }
+
+  selectBluetoothOutput() {
+    const androidDevices = this.getAndroidOutputDevices();
+    const btDevice = androidDevices.find((d) => {
+      const label = String(d.label || d.kind || '').toLowerCase();
+      return label.includes('bluetooth') || label.includes('bt');
+    });
+    if (btDevice) {
+      this.selectAudioOutput(btDevice.id);
+      this.flash('Switched to Bluetooth');
+    } else {
+      this.flash('No Bluetooth device found');
+    }
   }
 
   toggleCamera() {
