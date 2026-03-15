@@ -9,6 +9,7 @@ import android.app.Service
 import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
+import android.content.pm.ServiceInfo
 import android.os.Build
 import android.os.Handler
 import android.os.IBinder
@@ -18,6 +19,7 @@ import androidx.core.app.NotificationCompat
 import androidx.core.app.NotificationManagerCompat
 import androidx.core.content.ContextCompat
 import org.json.JSONArray
+import org.json.JSONObject
 import java.io.BufferedReader
 import java.io.InputStreamReader
 import java.net.HttpURLConnection
@@ -27,7 +29,7 @@ import java.util.concurrent.Executors
 /**
  * Background polling service that checks for new messages and shows
  * system notifications even when the app is in the background.
- * This is the fallback since FCM is not working.
+ * FCM bypass — this is the primary notification mechanism.
  */
 class NextalkPollingService : Service() {
 
@@ -35,18 +37,21 @@ class NextalkPollingService : Service() {
         private const val TAG = "NextalkPolling"
         private const val CHANNEL_SERVICE = "nextalk_service"
         private const val CHANNEL_MESSAGES = "nextalk_messages_v2"
+        private const val CHANNEL_CALLS = "nextalk_calls_v2"
         private const val SERVICE_NOTIFICATION_ID = 99999
-        private const val POLL_INTERVAL_MS = 10000L // 10 seconds
+        private const val POLL_INTERVAL_MS = 8000L // 8 seconds
         private const val PREFS_NAME = "nextalk_push_prefs"
         private const val PREF_AUTH_TOKEN = "auth_token"
         private const val PREF_BACKEND_ORIGIN = "backend_origin"
         private const val PREF_LAST_SEEN_TIMESTAMPS = "last_seen_timestamps"
+        private const val PREF_CURRENT_USERNAME = "current_username"
     }
 
     private val executor = Executors.newSingleThreadExecutor()
     private val handler = Handler(Looper.getMainLooper())
     private var isPolling = false
     private var lastSeenTimestamps = mutableMapOf<String, String>()
+    private var currentUsername = ""
 
     private val pollRunnable = object : Runnable {
         override fun run() {
@@ -64,7 +69,11 @@ class NextalkPollingService : Service() {
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         val notification = buildServiceNotification()
-        startForeground(SERVICE_NOTIFICATION_ID, notification)
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
+            startForeground(SERVICE_NOTIFICATION_ID, notification, ServiceInfo.FOREGROUND_SERVICE_TYPE_DATA_SYNC)
+        } else {
+            startForeground(SERVICE_NOTIFICATION_ID, notification)
+        }
         startPolling()
         return START_STICKY
     }
@@ -90,18 +99,21 @@ class NextalkPollingService : Service() {
     }
 
     private fun createServiceChannel() {
-        val channel = NotificationChannel(
-            CHANNEL_SERVICE,
-            "NexTalk Service",
-            NotificationManager.IMPORTANCE_MIN
-        ).apply {
-            description = "Keeps NexTalk connected for real-time messages"
-            setShowBadge(false)
-        }
         val manager = getSystemService(NotificationManager::class.java)
-        manager.createNotificationChannel(channel)
 
-        // Also ensure message channel exists
+        // Silent service channel — invisible to user
+        val serviceChannel = NotificationChannel(
+            CHANNEL_SERVICE,
+            "NexTalk Background",
+            NotificationManager.IMPORTANCE_NONE
+        ).apply {
+            description = "Background connection"
+            setShowBadge(false)
+            lockscreenVisibility = Notification.VISIBILITY_SECRET
+        }
+        manager.createNotificationChannel(serviceChannel)
+
+        // Message notification channel — high priority
         val msgChannel = NotificationChannel(
             CHANNEL_MESSAGES,
             "Messages",
@@ -113,6 +125,19 @@ class NextalkPollingService : Service() {
             lockscreenVisibility = Notification.VISIBILITY_PUBLIC
         }
         manager.createNotificationChannel(msgChannel)
+
+        // Call notification channel
+        val callChannel = NotificationChannel(
+            CHANNEL_CALLS,
+            "Calls",
+            NotificationManager.IMPORTANCE_HIGH
+        ).apply {
+            description = "Incoming call notifications"
+            enableVibration(true)
+            enableLights(true)
+            lockscreenVisibility = Notification.VISIBILITY_PUBLIC
+        }
+        manager.createNotificationChannel(callChannel)
     }
 
     private fun buildServiceNotification(): Notification {
@@ -124,10 +149,12 @@ class NextalkPollingService : Service() {
 
         return NotificationCompat.Builder(this, CHANNEL_SERVICE)
             .setContentTitle("NexTalk")
-            .setContentText("Connected for real-time messages")
+            .setContentText("Running")
             .setSmallIcon(android.R.drawable.stat_notify_chat)
             .setOngoing(true)
+            .setSilent(true)
             .setPriority(NotificationCompat.PRIORITY_MIN)
+            .setForegroundServiceBehavior(NotificationCompat.FOREGROUND_SERVICE_DEFERRED)
             .setContentIntent(pendingIntent)
             .build()
     }
@@ -137,6 +164,7 @@ class NextalkPollingService : Service() {
             val prefs = getSharedPreferences(PREFS_NAME, MODE_PRIVATE)
             val authToken = prefs.getString(PREF_AUTH_TOKEN, "") ?: ""
             val backendOrigin = prefs.getString(PREF_BACKEND_ORIGIN, "") ?: ""
+            currentUsername = prefs.getString(PREF_CURRENT_USERNAME, "") ?: ""
 
             if (authToken.isBlank() || backendOrigin.isBlank()) {
                 Log.d(TAG, "No auth token or backend origin, skipping poll")
@@ -181,8 +209,8 @@ class NextalkPollingService : Service() {
                 val conv = conversations.getJSONObject(i)
                 val convId = conv.optString("id", "")
                 val lastMessageAt = conv.optString("lastMessageAt", "")
-                val lastMessagePreview = conv.optString("lastMessagePreview", "")
-                val name = getConversationDisplayName(conv)
+                // Correct field name from ConversationDTO
+                val lastMessage = conv.optString("lastMessage", "")
 
                 if (convId.isBlank() || lastMessageAt.isBlank()) continue
 
@@ -196,8 +224,10 @@ class NextalkPollingService : Service() {
                 if (lastMessageAt != previousTimestamp) {
                     // New message detected!
                     lastSeenTimestamps[convId] = lastMessageAt
-                    val preview = if (lastMessagePreview.isNotBlank()) lastMessagePreview else "New message"
-                    showMessageNotification(name, preview, convId)
+
+                    val convName = getConversationDisplayName(conv)
+                    val preview = if (lastMessage.isNotBlank()) lastMessage else "New message"
+                    showMessageNotification(convName, preview, convId)
                 }
             }
             saveLastSeenTimestamps()
@@ -206,21 +236,32 @@ class NextalkPollingService : Service() {
         }
     }
 
-    private fun getConversationDisplayName(conv: org.json.JSONObject): String {
-        // Try conversation name first
+    private fun getConversationDisplayName(conv: JSONObject): String {
+        // Try conversation name first (for group chats)
         val name = conv.optString("name", "")
-        if (name.isNotBlank()) return name
+        if (name.isNotBlank() && name != "null") return name
 
-        // For private chats, try to get the other participant's name
-        val participants = conv.optJSONArray("participants")
-        if (participants != null) {
-            for (i in 0 until participants.length()) {
-                val p = participants.optJSONObject(i) ?: continue
-                val displayName = p.optString("displayName", "")
-                val username = p.optString("username", "")
-                val pName = displayName.ifBlank { username }
-                if (pName.isNotBlank()) return pName
-            }
+        // For private chats, get the OTHER participant's name
+        val participants = conv.optJSONArray("participants") ?: return "NexTalk"
+        val myUsername = currentUsername.lowercase()
+
+        for (i in 0 until participants.length()) {
+            val p = participants.optJSONObject(i) ?: continue
+            val username = p.optString("username", "")
+            // Skip self
+            if (username.lowercase() == myUsername && myUsername.isNotBlank()) continue
+            val displayName = p.optString("displayName", "")
+            val resolvedName = if (displayName.isNotBlank() && displayName != "null") displayName else username
+            if (resolvedName.isNotBlank() && resolvedName != "null") return resolvedName
+        }
+
+        // Fallback: return first participant's name
+        for (i in 0 until participants.length()) {
+            val p = participants.optJSONObject(i) ?: continue
+            val displayName = p.optString("displayName", "")
+            val username = p.optString("username", "")
+            val resolvedName = if (displayName.isNotBlank() && displayName != "null") displayName else username
+            if (resolvedName.isNotBlank() && resolvedName != "null") return resolvedName
         }
 
         return "NexTalk"
@@ -238,7 +279,6 @@ class NextalkPollingService : Service() {
 
         val intent = Intent(this, MainActivity::class.java).apply {
             flags = Intent.FLAG_ACTIVITY_CLEAR_TOP or Intent.FLAG_ACTIVITY_SINGLE_TOP
-            putExtra("nextalk_notification_conversation", conversationId)
         }
 
         val pendingIntent = PendingIntent.getActivity(
@@ -260,7 +300,7 @@ class NextalkPollingService : Service() {
 
         try {
             NotificationManagerCompat.from(this).notify(notificationId, builder.build())
-            Log.d(TAG, "Showed notification for $title: $body")
+            Log.d(TAG, "Notification: $title — $body")
         } catch (e: SecurityException) {
             Log.d(TAG, "Notification permission denied")
         }
@@ -271,17 +311,15 @@ class NextalkPollingService : Service() {
         val data = prefs.getString(PREF_LAST_SEEN_TIMESTAMPS, "") ?: ""
         if (data.isBlank()) return
         try {
-            val json = org.json.JSONObject(data)
+            val json = JSONObject(data)
             json.keys().forEach { key ->
                 lastSeenTimestamps[key] = json.optString(key, "")
             }
-        } catch (e: Exception) {
-            // ignore
-        }
+        } catch (_: Exception) {}
     }
 
     private fun saveLastSeenTimestamps() {
-        val json = org.json.JSONObject()
+        val json = JSONObject()
         lastSeenTimestamps.forEach { (key, value) ->
             json.put(key, value)
         }

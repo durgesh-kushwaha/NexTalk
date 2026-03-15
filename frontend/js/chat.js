@@ -338,6 +338,10 @@ function registerNativePushToken(force) {
 
   try {
     window.AndroidBridge.registerFcmToken(TOKEN || '', BACKEND_ORIGIN || '');
+    // Also save username so polling service can resolve conversation names
+    if (typeof window.AndroidBridge.saveCurrentUsername === 'function') {
+      window.AndroidBridge.saveCurrentUsername(CURRENT_USER || '');
+    }
     ensureNativePushRetryLoop();
   } catch (error) {
     ensureNativePushRetryLoop();

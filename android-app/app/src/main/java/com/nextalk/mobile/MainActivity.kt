@@ -163,6 +163,17 @@ class MainActivity : AppCompatActivity() {
         }
 
         @JavascriptInterface
+        fun saveCurrentUsername(username: String?) {
+            val uname = username?.trim().orEmpty()
+            if (uname.isNotBlank()) {
+                getSharedPreferences(PREFS_NAME, MODE_PRIVATE)
+                    .edit()
+                    .putString("current_username", uname)
+                    .apply()
+            }
+        }
+
+        @JavascriptInterface
         fun pickContact() {
             runOnUiThread {
                 val granted = ContextCompat.checkSelfPermission(
