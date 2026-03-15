@@ -24,11 +24,7 @@ class WebRTCManager {
     this.incomingRingLocked = false;
 
     this.iceConfig = {
-      iceServers: [
-        { urls: 'stun:stun.l.google.com:19302' },
-        { urls: 'stun:stun1.l.google.com:19302' },
-        { urls: 'stun:stun2.l.google.com:19302' },
-      ],
+      iceServers: this.getDefaultIceServers(),
     };
 
     this.overlay = document.getElementById('call-overlay');
@@ -87,6 +83,55 @@ class WebRTCManager {
     };
     document.addEventListener('pointerdown', unlockAudio, { once: true });
     document.addEventListener('keydown', unlockAudio, { once: true });
+  }
+
+  getDefaultIceServers() {
+    return [
+      { urls: 'stun:stun.l.google.com:19302' },
+      { urls: 'stun:stun1.l.google.com:19302' },
+      { urls: 'stun:stun2.l.google.com:19302' },
+    ];
+  }
+
+  setIceServers(servers) {
+    if (!Array.isArray(servers) || !servers.length) {
+      return;
+    }
+
+    const sanitized = servers
+      .map((item) => {
+        if (!item || typeof item !== 'object') {
+          return null;
+        }
+
+        const urls = item.urls;
+        const normalizedUrls = Array.isArray(urls)
+          ? urls.map((entry) => String(entry || '').trim()).filter(Boolean)
+          : String(urls || '').trim();
+
+        const hasUrls = Array.isArray(normalizedUrls)
+          ? normalizedUrls.length > 0
+          : !!normalizedUrls;
+        if (!hasUrls) {
+          return null;
+        }
+
+        const server = { urls: normalizedUrls };
+        if (item.username) {
+          server.username = String(item.username);
+        }
+        if (item.credential) {
+          server.credential = String(item.credential);
+        }
+        return server;
+      })
+      .filter(Boolean);
+
+    if (!sanitized.length) {
+      return;
+    }
+
+    this.iceConfig = { iceServers: sanitized };
   }
 
   isMobileDevice() {

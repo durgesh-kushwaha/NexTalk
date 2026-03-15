@@ -7,6 +7,7 @@ import android.app.PendingIntent
 import android.content.Intent
 import android.content.pm.PackageManager
 import android.os.Build
+import android.os.SystemClock
 import androidx.core.app.NotificationCompat
 import androidx.core.app.NotificationManagerCompat
 import androidx.core.content.ContextCompat
@@ -14,6 +15,7 @@ import com.google.firebase.messaging.FirebaseMessagingService
 import com.google.firebase.messaging.RemoteMessage
 import java.net.HttpURLConnection
 import java.net.URL
+import java.util.concurrent.ConcurrentHashMap
 import org.json.JSONObject
 
 class NextalkFirebaseMessagingService : FirebaseMessagingService() {
@@ -21,14 +23,12 @@ class NextalkFirebaseMessagingService : FirebaseMessagingService() {
     companion object {
         private const val CHANNEL_MESSAGES = "nextalk_messages_v2"
         private const val CHANNEL_CALLS = "nextalk_calls_v2"
+        private const val DEDUPE_WINDOW_MS = 2500L
+        private val recentMessageSignals = ConcurrentHashMap<String, Long>()
     }
 
     override fun onMessageReceived(message: RemoteMessage) {
         super.onMessageReceived(message)
-
-        if (MainActivity.isAppInForeground) {
-            return
-        }
 
         ensureChannels()
 
@@ -36,8 +36,13 @@ class NextalkFirebaseMessagingService : FirebaseMessagingService() {
         val type = data["type"] ?: "message"
         val title = message.notification?.title ?: data["title"] ?: if (type == "call") "Incoming call" else "New message"
         val body = message.notification?.body ?: data["body"] ?: if (type == "call") "Someone is calling you" else "You have a new message"
+        val notificationTag = buildNotificationTag(type, data)
 
-        showNotification(type, title, body)
+        if (shouldSkipDuplicate(notificationTag, title, body)) {
+            return
+        }
+
+        showNotification(type, title, body, notificationTag, data)
     }
 
     override fun onNewToken(token: String) {
@@ -81,7 +86,28 @@ class NextalkFirebaseMessagingService : FirebaseMessagingService() {
         manager.createNotificationChannels(listOf(messageChannel, callChannel))
     }
 
-    private fun showNotification(type: String, title: String, body: String) {
+    private fun buildNotificationTag(type: String, data: Map<String, String>): String {
+        return if (type == "call") {
+            "call-${data["fromUsername"] ?: "incoming"}"
+        } else {
+            "msg-${data["conversationId"] ?: "default"}"
+        }
+    }
+
+    private fun shouldSkipDuplicate(tag: String, title: String, body: String): Boolean {
+        val key = "$tag|$title|$body"
+        val now = SystemClock.elapsedRealtime()
+        val previous = recentMessageSignals[key] ?: 0L
+        recentMessageSignals[key] = now
+
+        if (recentMessageSignals.size > 150) {
+            recentMessageSignals.entries.removeIf { now - it.value > DEDUPE_WINDOW_MS * 4 }
+        }
+
+        return previous > 0L && (now - previous) < DEDUPE_WINDOW_MS
+    }
+
+    private fun showNotification(type: String, title: String, body: String, tag: String, data: Map<String, String>) {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
             val granted = ContextCompat.checkSelfPermission(
                 this,
@@ -93,10 +119,14 @@ class NextalkFirebaseMessagingService : FirebaseMessagingService() {
         }
 
         val channelId = if (type == "call") CHANNEL_CALLS else CHANNEL_MESSAGES
-        val notificationId = (System.currentTimeMillis() % Int.MAX_VALUE).toInt()
+        val notificationId = (tag.hashCode() and 0x7fffffff)
 
         val intent = Intent(this, MainActivity::class.java).apply {
             flags = Intent.FLAG_ACTIVITY_CLEAR_TOP or Intent.FLAG_ACTIVITY_SINGLE_TOP
+            putExtra("nextalk_notification_type", type)
+            putExtra("nextalk_notification_tag", tag)
+            putExtra("nextalk_notification_conversation", data["conversationId"] ?: "")
+            putExtra("nextalk_notification_from", data["fromUsername"] ?: "")
         }
 
         val pendingIntent = PendingIntent.getActivity(
@@ -114,11 +144,13 @@ class NextalkFirebaseMessagingService : FirebaseMessagingService() {
             .setContentIntent(pendingIntent)
             .setAutoCancel(true)
             .setPriority(NotificationCompat.PRIORITY_HIGH)
+            .setOnlyAlertOnce(true)
+            .setDefaults(NotificationCompat.DEFAULT_ALL)
 
         if (type == "call") {
             builder
                 .setCategory(NotificationCompat.CATEGORY_CALL)
-                .setFullScreenIntent(pendingIntent, true)
+                .setFullScreenIntent(pendingIntent, !MainActivity.isAppInForeground)
         } else {
             builder.setCategory(NotificationCompat.CATEGORY_MESSAGE)
         }

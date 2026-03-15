@@ -281,7 +281,7 @@ The frontend supports runtime backend origin configuration. By default:
 - Localhost frontend -> `http://localhost:8080`
 - Non-localhost frontend -> same origin as frontend host
 
-If your backend is hosted on a different domain, open the app once with a `backend` query param:
+The app now auto-resolves backend in production (no prompt required). If you need to override backend manually, open once with a `backend` query param:
 
 ```text
 https://YOUR-VERCEL-DOMAIN.vercel.app/?backend=https://YOUR-BACKEND-DOMAIN
@@ -312,6 +312,22 @@ Required Hugging Face Space secrets:
 - `MONGODB_URI` = your MongoDB Atlas URI
 - `NEXTALK_JWT_SECRET` = strong random secret (base64/plain string)
 - `NEXTALK_JWT_EXPIRATION` = token lifetime in ms (optional, default `86400000`)
+- `NEXTALK_FCM_ENABLED` = `true`
+- `NEXTALK_FCM_SERVICE_ACCOUNT_JSON` = Firebase service account JSON (plain JSON or base64)
+- `NEXTALK_WEBRTC_ICE_SERVERS_JSON` = JSON array of ICE/TURN servers used by clients
+
+Example value for `NEXTALK_WEBRTC_ICE_SERVERS_JSON`:
+
+```json
+[
+    { "urls": ["stun:stun.l.google.com:19302"] },
+    {
+        "urls": ["turn:turn.example.com:3478?transport=udp", "turn:turn.example.com:3478?transport=tcp"],
+        "username": "turn-user",
+        "credential": "turn-password"
+    }
+]
+```
 
 After backend is live, expected URL format:
 

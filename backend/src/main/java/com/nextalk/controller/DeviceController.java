@@ -39,11 +39,10 @@ public class DeviceController {
     ) {
         String username = currentUser.getUsername();
         int tokenCount = pushNotificationService.getRegisteredTokenCount(username);
-        boolean ready = pushNotificationService.isFcmReady();
-        return ResponseEntity.ok(Map.of(
-                "username", username,
-                "fcmReady", ready,
-                "tokenCount", tokenCount
-        ));
+        Map<String, Object> diagnostics = pushNotificationService.getFcmDiagnostics();
+        diagnostics.put("username", username);
+        diagnostics.put("fcmReady", pushNotificationService.isFcmReady());
+        diagnostics.put("tokenCount", tokenCount);
+        return ResponseEntity.ok(diagnostics);
     }
 }

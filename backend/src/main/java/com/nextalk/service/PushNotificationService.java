@@ -2,6 +2,7 @@ package com.nextalk.service;
 
 import java.io.ByteArrayInputStream;
 import java.io.FileInputStream;
+import java.io.IOException;
 import java.io.InputStream;
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
@@ -9,6 +10,7 @@ import java.util.Base64;
 import java.util.Collections;
 import java.util.HashMap;
 import java.util.HashSet;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -25,11 +27,14 @@ import com.google.firebase.FirebaseApp;
 import com.google.firebase.FirebaseOptions;
 import com.google.firebase.messaging.AndroidConfig;
 import com.google.firebase.messaging.AndroidNotification;
+import com.google.firebase.messaging.BatchResponse;
 import com.google.firebase.messaging.FirebaseMessaging;
 import com.google.firebase.messaging.FirebaseMessagingException;
 import com.google.firebase.messaging.Message;
+import com.google.firebase.messaging.MessagingErrorCode;
 import com.google.firebase.messaging.MulticastMessage;
 import com.google.firebase.messaging.Notification;
+import com.google.firebase.messaging.SendResponse;
 import com.nextalk.model.User;
 import com.nextalk.repository.UserRepository;
 
@@ -55,6 +60,7 @@ public class PushNotificationService {
     private String serviceAccountJson;
 
     private FirebaseApp firebaseApp;
+    private String fcmCredentialSource = "none";
 
     public boolean isFcmReady() {
         return fcmEnabled && firebaseApp != null;
@@ -81,6 +87,7 @@ public class PushNotificationService {
         try (InputStream stream = openServiceAccountStream()) {
             if (stream == null) {
                 log.warn("FCM enabled but no service account source configured (path/json)");
+                fcmCredentialSource = "not-configured";
                 return;
             }
             FirebaseOptions options = FirebaseOptions.builder()
@@ -88,14 +95,27 @@ public class PushNotificationService {
                     .build();
             firebaseApp = FirebaseApp.initializeApp(options, "nextalk-fcm");
             if (serviceAccountJson != null && !serviceAccountJson.isBlank()) {
+                fcmCredentialSource = "env-json";
                 log.info("FCM initialized using service account JSON from environment");
             } else {
+                fcmCredentialSource = "file-path";
                 log.info("FCM initialized using service account at {}", serviceAccountPath);
             }
         } catch (Exception error) {
             firebaseApp = null;
+            fcmCredentialSource = "init-error";
             log.error("Failed to initialize FCM service account", error);
         }
+    }
+
+    public Map<String, Object> getFcmDiagnostics() {
+        Map<String, Object> diagnostics = new LinkedHashMap<>();
+        diagnostics.put("enabled", fcmEnabled);
+        diagnostics.put("ready", firebaseApp != null);
+        diagnostics.put("credentialSource", fcmCredentialSource);
+        diagnostics.put("serviceAccountPathConfigured", serviceAccountPath != null && !serviceAccountPath.isBlank());
+        diagnostics.put("serviceAccountJsonConfigured", serviceAccountJson != null && !serviceAccountJson.isBlank());
+        return diagnostics;
     }
 
     private InputStream openServiceAccountStream() {
@@ -117,7 +137,7 @@ public class PushNotificationService {
         }
         try {
             return new FileInputStream(serviceAccountPath);
-        } catch (Exception error) {
+        } catch (IOException error) {
             log.error("Could not open FCM service account path {}", serviceAccountPath, error);
             return null;
         }
@@ -143,7 +163,7 @@ public class PushNotificationService {
             existing.add(0, normalizedToken);
 
             if (existing.size() > MAX_TOKENS_PER_USER) {
-                existing = existing.subList(0, MAX_TOKENS_PER_USER);
+                existing = new ArrayList<>(existing.subList(0, MAX_TOKENS_PER_USER));
             }
 
             user.setFcmTokens(existing);
@@ -253,6 +273,9 @@ public class PushNotificationService {
                 FirebaseMessaging.getInstance(firebaseApp).send(message);
                 log.debug("Push sent to 1 token");
             } catch (FirebaseMessagingException error) {
+                if (isInvalidTokenError(error)) {
+                    revokeInvalidTokens(List.of(validTokens.get(0)));
+                }
                 log.error("Failed to send push to single token", error);
             }
             return;
@@ -266,10 +289,61 @@ public class PushNotificationService {
                 .build();
 
         try {
-            FirebaseMessaging.getInstance(firebaseApp).sendEachForMulticast(message);
+            BatchResponse response = FirebaseMessaging.getInstance(firebaseApp).sendEachForMulticast(message);
+            List<String> invalidTokens = new ArrayList<>();
+            List<SendResponse> responses = response.getResponses();
+            for (int index = 0; index < responses.size(); index++) {
+                SendResponse sendResponse = responses.get(index);
+                if (sendResponse.isSuccessful()) {
+                    continue;
+                }
+                FirebaseMessagingException exception = sendResponse.getException();
+                if (isInvalidTokenError(exception)) {
+                    invalidTokens.add(validTokens.get(index));
+                }
+            }
+            revokeInvalidTokens(invalidTokens);
             log.debug("Push multicast sent to {} token(s)", validTokens.size());
         } catch (FirebaseMessagingException error) {
             log.error("Failed to send multicast push", error);
         }
+    }
+
+    private boolean isInvalidTokenError(FirebaseMessagingException error) {
+        if (error == null || error.getMessagingErrorCode() == null) {
+            return false;
+        }
+        MessagingErrorCode code = error.getMessagingErrorCode();
+        return code == MessagingErrorCode.UNREGISTERED || code == MessagingErrorCode.INVALID_ARGUMENT;
+    }
+
+    private void revokeInvalidTokens(List<String> tokens) {
+        if (tokens == null || tokens.isEmpty()) {
+            return;
+        }
+
+        List<String> invalidTokens = tokens.stream()
+                .filter(token -> token != null && !token.isBlank())
+                .distinct()
+                .collect(Collectors.toList());
+
+        if (invalidTokens.isEmpty()) {
+            return;
+        }
+
+        invalidTokens.forEach(invalidToken -> {
+            List<User> users = userRepository.findByFcmTokensContaining(invalidToken);
+            users.forEach(user -> {
+                List<String> existing = user.getFcmTokens() == null
+                        ? new ArrayList<>()
+                        : new ArrayList<>(user.getFcmTokens());
+                boolean removed = existing.removeIf(token -> invalidToken.equals(token));
+                if (removed) {
+                    user.setFcmTokens(existing);
+                    userRepository.save(user);
+                    log.info("Removed invalid FCM token for user {}", user.getUsername());
+                }
+            });
+        });
     }
 }

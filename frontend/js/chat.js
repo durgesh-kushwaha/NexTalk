@@ -1122,6 +1122,14 @@ function setMobileView(mode) {
 }
 
 function handleNativeBack() {
+  if (window.webRTC?.overlay?.classList.contains('open')) {
+    window.webRTC.endCall();
+    return true;
+  }
+  if (window.webRTC?.notification?.classList.contains('open')) {
+    window.webRTC.rejectCall();
+    return true;
+  }
   if (avatarViewer?.classList.contains('open')) {
     closeAvatarViewer();
     return true;
@@ -1140,6 +1148,10 @@ function handleNativeBack() {
   }
   if (attachMenu && !attachMenu.hidden) {
     closeAttachMenu();
+    return true;
+  }
+  if (isMobileScreen() && sidebar?.classList.contains('open')) {
+    toggleSidebar(false);
     return true;
   }
   if (isMobileScreen() && appShell.classList.contains('mobile-chat-mode')) {
@@ -1415,6 +1427,16 @@ async function runNativeFcmDiagnostics() {
     }
   } catch (error) {
     registerNativePushToken(true);
+  }
+}
+
+async function loadRuntimeClientConfig() {
+  try {
+    const config = await api.get('/config/client');
+    if (Array.isArray(config?.iceServers) && window.webRTC?.setIceServers) {
+      window.webRTC.setIceServers(config.iceServers);
+    }
+  } catch (error) {
   }
 }
 
@@ -2432,11 +2454,9 @@ async function init() {
     localStorage.setItem(NOTIF_DESKTOP_KEY, '1');
     localStorage.setItem(NOTIF_MESSAGE_SOUND_KEY, '1');
     localStorage.setItem(NOTIF_CALL_SOUND_KEY, '1');
-    if (!isAndroidNotificationsGranted()) {
-      await requestNotificationPermission();
-    }
   }
   applyTheme(localStorage.getItem(THEME_KEY) || 'dark');
+  await loadRuntimeClientConfig();
   registerNativePushToken();
   runNativeFcmDiagnostics();
   clearReplyTarget();

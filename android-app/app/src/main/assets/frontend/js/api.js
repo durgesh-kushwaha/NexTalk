@@ -56,8 +56,12 @@ function resolveConfiguredBackendOrigin() {
     return DEFAULT_PROD_BACKEND_ORIGIN;
   }
 
-  // Hosted frontend domain uses Hugging Face backend by default.
-  if (host.endsWith('durgesh.me')) {
+  if (isLocalHost) {
+    return '';
+  }
+
+  // Non-local web deployments default to the production backend.
+  if (host) {
     return DEFAULT_PROD_BACKEND_ORIGIN;
   }
 
@@ -72,16 +76,6 @@ function saveBackendOrigin(origin) {
   try {
     localStorage.setItem('nextalk_backend_origin', sanitized);
   } catch (error) {
-  }
-  return sanitized;
-}
-
-function promptForBackendOrigin() {
-  const message = 'Enter backend URL (example: https://your-backend-domain.com)';
-  const input = window.prompt(message, '');
-  const sanitized = saveBackendOrigin(input || '');
-  if (!sanitized) {
-    return '';
   }
   return sanitized;
 }
@@ -216,7 +210,7 @@ async function apiFetch(endpoint, options = {}) {
   } catch (error) {
     const fallbackBase = getAutoFallbackBase();
     if (!fallbackBase || fallbackBase === activeBase) {
-      throw new Error('Cannot reach NexTalk API. Open app with ?backend=https://YOUR-BACKEND-DOMAIN once, then retry.');
+      throw new Error('Cannot reach NexTalk API right now. Please check your internet connection and retry.');
     }
     activeBase = fallbackBase;
     response = await executeFetch(activeBase);
