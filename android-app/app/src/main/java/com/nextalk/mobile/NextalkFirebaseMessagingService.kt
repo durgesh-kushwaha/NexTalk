@@ -23,7 +23,7 @@ class NextalkFirebaseMessagingService : FirebaseMessagingService() {
     companion object {
         private const val CHANNEL_MESSAGES = "nextalk_messages_v2"
         private const val CHANNEL_CALLS = "nextalk_calls_v2"
-        private const val DEDUPE_WINDOW_MS = 2500L
+        private const val DEDUPE_WINDOW_MS = 900L
         private val recentMessageSignals = ConcurrentHashMap<String, Long>()
     }
 
@@ -38,7 +38,12 @@ class NextalkFirebaseMessagingService : FirebaseMessagingService() {
         val body = message.notification?.body ?: data["body"] ?: if (type == "call") "Someone is calling you" else "You have a new message"
         val notificationTag = buildNotificationTag(type, data)
 
-        if (shouldSkipDuplicate(notificationTag, title, body)) {
+        val dedupeId = message.messageId
+            ?: data["messageId"]
+            ?: data["callId"]
+            ?: "$notificationTag|$title|$body"
+
+        if (shouldSkipDuplicate(dedupeId)) {
             return
         }
 
@@ -94,8 +99,7 @@ class NextalkFirebaseMessagingService : FirebaseMessagingService() {
         }
     }
 
-    private fun shouldSkipDuplicate(tag: String, title: String, body: String): Boolean {
-        val key = "$tag|$title|$body"
+    private fun shouldSkipDuplicate(key: String): Boolean {
         val now = SystemClock.elapsedRealtime()
         val previous = recentMessageSignals[key] ?: 0L
         recentMessageSignals[key] = now

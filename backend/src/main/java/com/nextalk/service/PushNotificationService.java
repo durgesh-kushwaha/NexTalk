@@ -176,7 +176,8 @@ public class PushNotificationService {
             String conversationId,
             String senderUsername,
             List<String> recipientUserIds,
-            String bodyPreview
+            String bodyPreview,
+            String messageId
     ) {
         if (recipientUserIds == null || recipientUserIds.isEmpty()) {
             return;
@@ -188,6 +189,7 @@ public class PushNotificationService {
         Map<String, String> data = new HashMap<>();
         data.put("type", "message");
         data.put("conversationId", conversationId == null ? "" : conversationId);
+        data.put("messageId", messageId == null ? "" : messageId);
 
         sendToUserIds(recipientUserIds, title, body, data);
     }

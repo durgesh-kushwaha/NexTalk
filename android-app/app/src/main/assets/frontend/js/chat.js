@@ -24,6 +24,7 @@ let userMessageSubscription = null;
 let conversationsCache = [];
 let searchTimer = null;
 let refreshIntervalId = null;
+let refreshConversationsTimer = null;
 let messageLongPressTimer = null;
 let longPressMessageId = null;
 let desktopContextMessageId = null;
@@ -45,6 +46,7 @@ const TYPING_STATUS_TIMEOUT_MS = 1800;
 
 const recentNotificationMap = new Map();
 const recentSignalMap = new Map();
+const recentRealtimeMessageMap = new Map();
 
 let chatStatusBaseText = 'offline';
 let typingStatusTimer = null;
@@ -72,6 +74,26 @@ function shouldProcessSignal(signal) {
     for (const [entryKey, ts] of recentSignalMap.entries()) {
       if (now - ts > 5000) {
         recentSignalMap.delete(entryKey);
+      }
+    }
+  }
+  return true;
+}
+
+function shouldProcessRealtimeMessage(message) {
+  const key = message?.id
+    ? `id:${message.id}`
+    : [message?.conversationId || '', message?.sender?.username || '', message?.content || '', message?.sentAt || ''].join('|');
+  const now = Date.now();
+  const seen = recentRealtimeMessageMap.get(key) || 0;
+  if (now - seen < 1500) {
+    return false;
+  }
+  recentRealtimeMessageMap.set(key, now);
+  if (recentRealtimeMessageMap.size > 300) {
+    for (const [entryKey, ts] of recentRealtimeMessageMap.entries()) {
+      if (now - ts > 15000) {
+        recentRealtimeMessageMap.delete(entryKey);
       }
     }
   }
@@ -1479,6 +1501,51 @@ async function loadConversations(quiet) {
   }
 }
 
+function scheduleConversationsRefresh() {
+  if (refreshConversationsTimer) {
+    return;
+  }
+  refreshConversationsTimer = setTimeout(async () => {
+    refreshConversationsTimer = null;
+    await loadConversations(true);
+  }, 1200);
+}
+
+function applyConversationRealtimeUpdate(message, own) {
+  if (!message?.conversationId) {
+    return;
+  }
+
+  const conversationId = message.conversationId;
+  const existing = conversationsCache.find((item) => item.id === conversationId);
+  const preview = message.type === 'IMAGE'
+    ? 'Image'
+    : (message.type === 'FILE' && parseVideoNoticeContent(message.content)
+      ? 'Video'
+      : (message.content || 'New message'));
+  const sentAt = message.sentAt || new Date().toISOString();
+
+  if (existing) {
+    existing.lastMessage = preview;
+    existing.lastMessageAt = sentAt;
+  } else {
+    conversationsCache.unshift({
+      id: conversationId,
+      type: 'PRIVATE',
+      name: message.sender?.displayName || message.sender?.username || 'Chat',
+      participants: own ? [] : [{
+        username: message.sender?.username || '',
+        displayName: message.sender?.displayName || message.sender?.username || 'Chat',
+      }],
+      lastMessage: preview,
+      lastMessageAt: sentAt,
+    });
+  }
+
+  conversationsCache.sort((a, b) => toEpochMs(b.lastMessageAt) - toEpochMs(a.lastMessageAt));
+  refreshFilteredList();
+}
+
 async function loadCurrentUserProfile() {
   try {
     const me = await api.get('/users/me');
@@ -1539,6 +1606,10 @@ function handleRealtimeIncomingMessage(message) {
     return;
   }
 
+  if (!shouldProcessRealtimeMessage(message)) {
+    return;
+  }
+
   const conversationId = message.conversationId;
   const senderId = message.sender?.id || '';
   const senderUsername = String(message.sender?.username || '').toLowerCase();
@@ -1547,15 +1618,18 @@ function handleRealtimeIncomingMessage(message) {
 
   if (currentConversation?.id === conversationId) {
     appendMessage(message, true);
+    applyConversationRealtimeUpdate(message, own);
     if (!own) {
       markConversationDelivered();
       if (!isAway()) {
         markConversationRead();
       }
     }
-    loadConversations(true);
+    scheduleConversationsRefresh();
     return;
   }
+
+  applyConversationRealtimeUpdate(message, own);
 
   if (!own) {
     incrementUnread(conversationId);
@@ -1569,7 +1643,7 @@ function handleRealtimeIncomingMessage(message) {
     notifyIncomingMessage(conversation, preview);
   }
 
-  loadConversations(true);
+  scheduleConversationsRefresh();
 }
 
 function renderMessageContent(message) {
@@ -2032,7 +2106,7 @@ function connectWebSocket() {
     },
     heartbeatIncoming: 10000,
     heartbeatOutgoing: 10000,
-    reconnectDelay: 5000,
+    reconnectDelay: 2000,
     onConnect: onConnected,
     onWebSocketClose: () => {
       setStatus('Reconnecting', false);
@@ -2497,7 +2571,7 @@ async function init() {
   await loadConversations(false);
   connectWebSocket();
   if (!refreshIntervalId) {
-    refreshIntervalId = setInterval(() => loadConversations(true), 5000);
+    refreshIntervalId = setInterval(() => loadConversations(true), 15000);
   }
 }
 

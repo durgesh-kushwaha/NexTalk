@@ -124,7 +124,8 @@ public class MessageService {
             conversationId,
             sender.getDisplayName() != null ? sender.getDisplayName() : sender.getUsername(),
             recipientUserIds,
-            content
+            content,
+            message.getId()
         );
 
         return dto;
@@ -185,7 +186,8 @@ public class MessageService {
             conversationId,
             sender.getDisplayName() != null ? sender.getDisplayName() : sender.getUsername(),
             recipientUserIds,
-            "Image"
+            "Image",
+            message.getId()
         );
 
         return dto;
@@ -221,7 +223,8 @@ public class MessageService {
             conversationId,
             sender.getDisplayName() != null ? sender.getDisplayName() : sender.getUsername(),
             recipientUserIds,
-            "Video"
+            "Video",
+            message.getId()
         );
 
         return dto;
