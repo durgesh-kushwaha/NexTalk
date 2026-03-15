@@ -2895,6 +2895,13 @@ init();
     [tabChatsBtn, tabCallsBtn, tabGroupsBtn].forEach((btn) => btn?.classList.remove('active'));
     [tabChatsPanel, tabCallsPanel, tabGroupsPanel].forEach((panel) => panel?.classList.remove('active'));
 
+    // Switch FAB icon based on active tab
+    const fab = document.getElementById('new-chat-btn');
+    const fabIcon = fab?.querySelector('.material-symbols-rounded');
+    if (fabIcon) {
+      fabIcon.textContent = tab === 'groups' ? 'group_add' : 'edit';
+    }
+
     if (tab === 'chats') {
       tabChatsBtn?.classList.add('active');
       tabChatsPanel?.classList.add('active');

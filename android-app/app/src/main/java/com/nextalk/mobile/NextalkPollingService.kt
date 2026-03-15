@@ -28,6 +28,8 @@ import java.net.HttpURLConnection
 import java.net.URL
 import java.util.concurrent.Executors
 
+import android.os.PowerManager
+
 /**
  * Background polling service that checks for new messages and incoming calls,
  * showing system notifications even when the app is in the background or closed.
@@ -64,11 +66,16 @@ class NextalkPollingService : Service() {
     // Call deduplication — track which call we already notified about
     private var lastNotifiedCallFrom: String? = null
     private var lastNotifiedCallTimestamp: Long = 0L
+    private var wakeLock: PowerManager.WakeLock? = null
 
     private val pollRunnable = object : Runnable {
         override fun run() {
             if (!isPolling) return
-            executor.execute { pollForNewMessages() }
+            try {
+                executor.execute { pollForNewMessages() }
+            } catch (e: Exception) {
+                Log.d(TAG, "Poll runnable error: ${e.message}")
+            }
             handler.postDelayed(this, POLL_INTERVAL_MS)
         }
     }
@@ -86,6 +93,7 @@ class NextalkPollingService : Service() {
         } else {
             startForeground(SERVICE_NOTIFICATION_ID, notification)
         }
+        acquireWakeLock()
         startPolling()
         return START_STICKY
     }
@@ -94,6 +102,7 @@ class NextalkPollingService : Service() {
 
     override fun onDestroy() {
         stopPolling()
+        releaseWakeLock()
         super.onDestroy()
     }
 
@@ -125,6 +134,35 @@ class NextalkPollingService : Service() {
             Log.d(TAG, "Scheduled service restart via AlarmManager")
         } catch (e: Exception) {
             Log.d(TAG, "Failed to schedule restart: ${e.message}")
+        }
+    }
+
+    private fun acquireWakeLock() {
+        try {
+            val powerManager = getSystemService(Context.POWER_SERVICE) as? PowerManager
+            wakeLock = powerManager?.newWakeLock(
+                PowerManager.PARTIAL_WAKE_LOCK,
+                "NexTalk::PollingWakeLock"
+            )?.apply {
+                acquire(10 * 60 * 1000L) // 10 minutes max
+            }
+            Log.d(TAG, "WakeLock acquired")
+        } catch (e: Exception) {
+            Log.d(TAG, "WakeLock error: ${e.message}")
+        }
+    }
+
+    private fun releaseWakeLock() {
+        try {
+            wakeLock?.let {
+                if (it.isHeld) {
+                    it.release()
+                    Log.d(TAG, "WakeLock released")
+                }
+            }
+            wakeLock = null
+        } catch (e: Exception) {
+            Log.d(TAG, "WakeLock release error: ${e.message}")
         }
     }
 
@@ -192,7 +230,7 @@ class NextalkPollingService : Service() {
 
         return NotificationCompat.Builder(this, CHANNEL_SERVICE)
             .setContentTitle("NexTalk")
-            .setContentText("Connected — receiving messages and calls")
+            .setContentText("Running")
             .setSmallIcon(android.R.drawable.stat_notify_chat)
             .setOngoing(true)
             .setSilent(true)
