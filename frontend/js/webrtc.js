@@ -414,26 +414,7 @@ class WebRTCManager {
   }
 
   renderAudioOutputOptions(devices) {
-    if (!this.audioOutputWrap || !this.audioOutputSelect) {
-      return;
-    }
-    if (!devices.length) {
-      this.audioOutputWrap.hidden = true;
-      return;
-    }
-
-    this.audioOutputSelect.innerHTML = '';
-    devices.forEach((device) => {
-      const option = document.createElement('option');
-      option.value = String(device.id);
-      option.textContent = this.mapAudioOutputLabel(device);
-      this.audioOutputSelect.appendChild(option);
-    });
-
-    const selected = devices.find((item) => item.selected) || devices[0];
-    this.selectedAudioOutputId = selected.id;
-    this.audioOutputSelect.value = selected.id;
-    this.audioOutputWrap.hidden = false;
+    // Legacy — dropdown removed, using toggle buttons now
   }
 
   async refreshAudioOutputOptions() {
@@ -1132,9 +1113,6 @@ class WebRTCManager {
     this.lastIncomingCallFrom = '';
     this.lastIncomingCallAt = 0;
     this.incomingRingLocked = false;
-    if (this.audioOutputWrap) {
-      this.audioOutputWrap.hidden = true;
-    }
     this.localVideo.classList.remove('expanded');
     this.updateAndroidVideoCallState(false);
     this.notifyAndroidCallAudioEnd();
