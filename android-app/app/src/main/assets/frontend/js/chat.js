@@ -542,8 +542,14 @@ function notifyIncomingMessage(conversation, message) {
   recentNotificationMap.set(key, { signature, at: now });
 
   showDesktopNotification(title, content, `msg-${conversation.id}`, 'message');
-  if (hasAndroidBridge() && !isAndroidNotificationsGranted()) {
-    showToast(`${title}: ${content}`);
+  if (hasAndroidBridge()) {
+    if (!isAndroidNotificationsGranted()) {
+      showToast(`${title}: ${content}`);
+    }
+    // Also play sound on Android
+    if (messageSoundEnabled && typeof window.AndroidBridge.playNotificationTone === 'function') {
+      try { window.AndroidBridge.playNotificationTone('message'); } catch (e) {}
+    }
   }
   if (messageSoundEnabled && !hasAndroidBridge()) {
     playNotificationTone('message');

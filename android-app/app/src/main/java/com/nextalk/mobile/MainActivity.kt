@@ -332,6 +332,18 @@ class MainActivity : AppCompatActivity() {
 
         requestMissingRuntimePermissions()
         webView.loadUrl(BuildConfig.APP_URL)
+
+        // Start background polling service for notifications when app is in background
+        startPollingService()
+    }
+
+    private fun startPollingService() {
+        try {
+            val serviceIntent = Intent(this, NextalkPollingService::class.java)
+            ContextCompat.startForegroundService(this, serviceIntent)
+        } catch (e: Exception) {
+            // Service might fail to start on some devices, but app still works
+        }
     }
 
     override fun onDestroy() {
