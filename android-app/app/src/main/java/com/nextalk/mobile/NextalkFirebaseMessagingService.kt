@@ -30,11 +30,6 @@ class NextalkFirebaseMessagingService : FirebaseMessagingService() {
     override fun onMessageReceived(message: RemoteMessage) {
         super.onMessageReceived(message)
 
-        // When app is in foreground, WebView STOMP handles in-app notifications
-        if (MainActivity.isAppInForeground) {
-            return
-        }
-
         ensureChannels()
 
         val data = message.data
@@ -132,7 +127,8 @@ class NextalkFirebaseMessagingService : FirebaseMessagingService() {
             }
         }
 
-        val channelId = if (type == "call") CHANNEL_CALLS else CHANNEL_MESSAGES
+        val channelId = data["channelId"]?.takeIf { it.isNotBlank() }
+            ?: if (type == "call") CHANNEL_CALLS else CHANNEL_MESSAGES
         val notificationId = (tag.hashCode() and 0x7fffffff)
 
         val intent = Intent(this, MainActivity::class.java).apply {

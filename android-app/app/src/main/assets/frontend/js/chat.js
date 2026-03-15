@@ -1261,6 +1261,11 @@ function createMessageActionButton(label, handler) {
 
 function closeMessageActionSheet() {
   msgActionSheet.classList.remove('open');
+  // Remove highlight from previously selected message
+  const selected = messagesContainer.querySelector('.msg-selected');
+  if (selected) {
+    selected.classList.remove('msg-selected');
+  }
   longPressMessageId = null;
 }
 
@@ -1271,8 +1276,15 @@ function openMessageActionSheet(messageId) {
   const senderUsername = String(message?.sender?.username || '').toLowerCase();
   const own = (USER_ID && senderId === USER_ID)
     || (senderUsername && senderUsername === String(CURRENT_USER || '').toLowerCase());
-  msgDeleteAllBtn.style.display = own ? 'block' : 'none';
+  msgDeleteAllBtn.style.display = own ? 'inline-flex' : 'none';
   msgActionSheet.classList.add('open');
+
+  // Highlight the selected message
+  const row = messagesContainer.querySelector(`[data-message-id="${messageId}"]`);
+  if (row) {
+    const messageRow = row.closest('.message-row') || row;
+    messageRow.classList.add('msg-selected');
+  }
 }
 
 function closeDesktopContextMenu() {
@@ -2702,3 +2714,120 @@ window.addEventListener('focus', () => {
 });
 
 init();
+
+// Participant picker for group calls
+(function () {
+  const participantPickerModal = document.getElementById('participant-picker-modal');
+  const closeParticipantBtn = document.getElementById('close-participant-picker');
+  const participantSearchInput = document.getElementById('participant-search-input');
+  const participantSearchResults = document.getElementById('participant-search-results');
+  let participantSearchTimer = null;
+
+  if (!participantPickerModal || !closeParticipantBtn) {
+    return;
+  }
+
+  closeParticipantBtn.addEventListener('click', () => {
+    participantPickerModal.classList.remove('open');
+  });
+
+  participantPickerModal.addEventListener('click', (event) => {
+    if (event.target === participantPickerModal) {
+      participantPickerModal.classList.remove('open');
+    }
+  });
+
+  if (participantSearchInput) {
+    participantSearchInput.addEventListener('input', () => {
+      if (participantSearchTimer) {
+        clearTimeout(participantSearchTimer);
+      }
+      participantSearchTimer = setTimeout(async () => {
+        const query = participantSearchInput.value.trim();
+        if (!query) {
+          participantSearchResults.innerHTML = '';
+          // Show conversations list when empty
+          renderParticipantConversations();
+          return;
+        }
+        try {
+          const users = await api.get(`/users/search?query=${encodeURIComponent(query)}`);
+          renderParticipantUsers(users || []);
+        } catch (error) {
+          participantSearchResults.innerHTML = '<div class="placeholder">Search failed</div>';
+        }
+      }, 350);
+    });
+
+    // Show conversations initially
+    participantPickerModal.addEventListener('transitionend', () => {
+      if (participantPickerModal.classList.contains('open') && !participantSearchInput.value.trim()) {
+        renderParticipantConversations();
+      }
+    });
+  }
+
+  function renderParticipantConversations() {
+    if (!participantSearchResults) {
+      return;
+    }
+    const items = conversationsCache.filter((c) => c.type === 'PRIVATE');
+    if (!items.length) {
+      participantSearchResults.innerHTML = '<div class="placeholder">No conversations</div>';
+      return;
+    }
+    participantSearchResults.innerHTML = items.map((conv) => {
+      const name = getConversationName(conv);
+      const partner = getPrivatePartner(conv);
+      const username = partner?.username || '';
+      return `<div class="user-result-item" data-username="${username}">
+        <div class="avatar">${(name || '?').slice(0, 1).toUpperCase()}</div>
+        <div>
+          <div class="user-result-name">${name || 'Chat'}</div>
+          <div class="user-result-username">@${username || 'unknown'}</div>
+        </div>
+      </div>`;
+    }).join('');
+
+    participantSearchResults.querySelectorAll('.user-result-item').forEach((item) => {
+      item.addEventListener('click', () => {
+        const username = item.getAttribute('data-username');
+        if (username && window.webRTC) {
+          window.webRTC.sendInviteToParticipant(username);
+          participantPickerModal.classList.remove('open');
+        }
+      });
+    });
+  }
+
+  function renderParticipantUsers(users) {
+    if (!participantSearchResults) {
+      return;
+    }
+    if (!users.length) {
+      participantSearchResults.innerHTML = '<div class="placeholder">No users found</div>';
+      return;
+    }
+    participantSearchResults.innerHTML = users
+      .filter((u) => String(u.username || '').toLowerCase() !== String(CURRENT_USER || '').toLowerCase())
+      .map((user) => {
+        return `<div class="user-result-item" data-username="${user.username}">
+          <div class="avatar">${(user.displayName || user.username || '?').slice(0, 1).toUpperCase()}</div>
+          <div>
+            <div class="user-result-name">${user.displayName || user.username}</div>
+            <div class="user-result-username">@${user.username}</div>
+          </div>
+        </div>`;
+      }).join('');
+
+    participantSearchResults.querySelectorAll('.user-result-item').forEach((item) => {
+      item.addEventListener('click', () => {
+        const username = item.getAttribute('data-username');
+        if (username && window.webRTC) {
+          window.webRTC.sendInviteToParticipant(username);
+          participantPickerModal.classList.remove('open');
+        }
+      });
+    });
+  }
+})();

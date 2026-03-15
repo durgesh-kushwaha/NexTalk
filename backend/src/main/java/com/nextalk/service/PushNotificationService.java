@@ -258,6 +258,7 @@ public class PushNotificationService {
         Map<String, String> fullData = new HashMap<>(data == null ? Map.of() : data);
         fullData.put("title", title == null ? "" : title);
         fullData.put("body", body == null ? "" : body);
+        fullData.put("channelId", "call".equals(fullData.get("type")) ? "nextalk_calls_v2" : "nextalk_messages_v2");
 
         AndroidConfig androidConfig = AndroidConfig.builder()
                 .setPriority(AndroidConfig.Priority.HIGH)

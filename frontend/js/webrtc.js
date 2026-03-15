@@ -540,7 +540,7 @@ class WebRTCManager {
     this.applyAudioAvatar();
     this.callInProgress = true;
     this.partnerLabel.textContent = this.callPartnerDisplayName || this.callPartner;
-    this.callStateLabel.textContent = 'Ringing...';
+    this.callStateLabel.textContent = 'Calling...';
     this.overlay.classList.add('open');
     this.updateAndroidVideoCallState(this.isVideoCall);
     this.requestTimeoutId = setTimeout(() => {
@@ -688,6 +688,11 @@ class WebRTCManager {
         }
         this.onCallAccepted();
         break;
+      case 'CALL_RINGING':
+        if (this.callInProgress && this.callStateLabel) {
+          this.callStateLabel.textContent = 'Ringing...';
+        }
+        break;
       case 'CALL_REJECTED':
         this.incomingRingLocked = true;
         if (this.callRequestRetryTimer) {
@@ -725,8 +730,24 @@ class WebRTCManager {
       this.flash('Start a call first');
       return;
     }
-    const username = (window.prompt('Add participant by username', '') || '').trim();
-    if (!username) {
+
+    const modal = document.getElementById('participant-picker-modal');
+    if (modal) {
+      modal.classList.add('open');
+      const input = document.getElementById('participant-search-input');
+      if (input) {
+        input.value = '';
+        input.focus();
+      }
+      const results = document.getElementById('participant-search-results');
+      if (results) {
+        results.innerHTML = '';
+      }
+    }
+  }
+
+  sendInviteToParticipant(username) {
+    if (!username || !this.callInProgress) {
       return;
     }
 
@@ -800,6 +821,12 @@ class WebRTCManager {
     this.notifType.textContent = this.isVideoCall ? 'Incoming video call' : 'Incoming audio call';
     this.notification.classList.add('open');
     this.startIncomingRingtone();
+
+    // Notify caller that the phone is ringing
+    window.sendSignal({
+      type: 'CALL_RINGING',
+      toUsername: signal.fromUsername,
+    });
   }
 
   async onCallAccepted() {
@@ -823,7 +850,7 @@ class WebRTCManager {
         this.cleanup();
         return;
       }
-      this.callStateLabel.textContent = 'Ringing...';
+      this.callStateLabel.textContent = 'Connecting...';
       this.applyCallModeClass();
       this.startTimer();
     } catch (error) {

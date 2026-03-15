@@ -126,18 +126,18 @@
   </div>
 
   <div class="msg-sheet" id="msg-action-sheet">
-    <button class="msg-sheet-btn" id="msg-reply-btn">Reply</button>
-    <button class="msg-sheet-btn" id="msg-info-btn">Info</button>
-    <button class="msg-sheet-btn" id="msg-delete-me-btn">Delete for me</button>
-    <button class="msg-sheet-btn" id="msg-delete-all-btn">Delete for everyone</button>
-    <button class="msg-sheet-btn secondary" id="msg-sheet-cancel-btn">Cancel</button>
+    <button class="msg-sheet-btn" id="msg-reply-btn"><span class="material-symbols-rounded">reply</span>Reply</button>
+    <button class="msg-sheet-btn" id="msg-info-btn"><span class="material-symbols-rounded">info</span>Info</button>
+    <button class="msg-sheet-btn" id="msg-delete-me-btn"><span class="material-symbols-rounded">delete</span>Delete for me</button>
+    <button class="msg-sheet-btn danger" id="msg-delete-all-btn"><span class="material-symbols-rounded">delete_sweep</span>Delete for everyone</button>
+    <button class="msg-sheet-btn secondary" id="msg-sheet-cancel-btn"><span class="material-symbols-rounded">close</span>Cancel</button>
   </div>
 
   <div class="msg-context-menu" id="msg-context-menu">
-    <button class="msg-context-btn" id="ctx-reply-btn">Reply</button>
-    <button class="msg-context-btn" id="ctx-info-btn">Info</button>
-    <button class="msg-context-btn" id="ctx-delete-me-btn">Delete for me</button>
-    <button class="msg-context-btn" id="ctx-delete-all-btn">Delete for everyone</button>
+    <button class="msg-context-btn" id="ctx-reply-btn"><span class="material-symbols-rounded">reply</span>Reply</button>
+    <button class="msg-context-btn" id="ctx-info-btn"><span class="material-symbols-rounded">info</span>Info</button>
+    <button class="msg-context-btn" id="ctx-delete-me-btn"><span class="material-symbols-rounded">delete</span>Delete for me</button>
+    <button class="msg-context-btn danger" id="ctx-delete-all-btn"><span class="material-symbols-rounded">delete_sweep</span>Delete for everyone</button>
   </div>
 
   <div class="message-info-modal" id="message-info-modal">
@@ -196,6 +196,17 @@
         <span class="material-symbols-rounded">volume_up</span>
         <select id="audio-output-select" aria-label="Audio output"></select>
       </div>
+    </div>
+  </div>
+
+  <div class="modal-overlay" id="participant-picker-modal">
+    <div class="modal">
+      <div class="modal-head">
+        <h3>Add Participant</h3>
+        <button class="ghost-btn" id="close-participant-picker">Close</button>
+      </div>
+      <input type="text" id="participant-search-input" placeholder="Search users by name or username" />
+      <div class="user-search-results" id="participant-search-results"></div>
     </div>
   </div>
 
