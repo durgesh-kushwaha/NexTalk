@@ -785,18 +785,15 @@ class WebRTCManager {
   }
 
   onCallRequest(signal) {
-    if (this.incomingRingLocked) {
-      return;
-    }
-
     const from = String(signal.fromUsername || '').toLowerCase();
     const now = Date.now();
+    // Deduplicate rapid-fire duplicate signals (3 second window)
     if (
       !this.callInProgress
       && this.notification.classList.contains('open')
       && from
       && from === this.lastIncomingCallFrom
-      && (now - this.lastIncomingCallAt) < 15000
+      && (now - this.lastIncomingCallAt) < 3000
     ) {
       return;
     }

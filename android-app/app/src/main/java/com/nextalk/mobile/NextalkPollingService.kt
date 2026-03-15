@@ -251,13 +251,13 @@ class NextalkPollingService : Service() {
                 return
             }
 
-            // Don't poll when app is in foreground (WebView handles it)
+            // Poll for pending calls (higher priority — always poll even in foreground)
+            pollPendingCalls(backendOrigin, authToken)
+
+            // Don't poll messages when app is in foreground (WebView handles it)
             if (MainActivity.isAppInForeground) {
                 return
             }
-
-            // Poll for pending calls (higher priority — do first)
-            pollPendingCalls(backendOrigin, authToken)
 
             // Poll for new messages
             pollMessages(backendOrigin, authToken)
