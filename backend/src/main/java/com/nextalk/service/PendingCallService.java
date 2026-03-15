@@ -11,12 +11,12 @@ import org.springframework.stereotype.Service;
  * When a CALL_REQUEST signal is sent, the call is stored here temporarily.
  * The Android polling service checks this endpoint to show call notifications
  * when FCM is unavailable.
- * Entries expire after 30 seconds.
+ * Entries expire after 60 seconds.
  */
 @Service
 public class PendingCallService {
 
-    private static final long EXPIRY_MS = 30_000; // 30 seconds
+    private static final long EXPIRY_MS = 60_000; // 60 seconds
 
     private final Map<String, PendingCall> pendingCalls = new ConcurrentHashMap<>();
 
@@ -31,19 +31,35 @@ public class PendingCallService {
         ));
     }
 
-    public PendingCall consumePendingCall(String username) {
+    /**
+     * Peek at the pending call without removing it.
+     * The call stays in the store so subsequent polls still see it.
+     * Returns null if no pending call or if the call has expired.
+     */
+    public PendingCall getPendingCall(String username) {
         if (username == null || username.isBlank()) {
             return null;
         }
-        PendingCall call = pendingCalls.remove(username.toLowerCase());
+        PendingCall call = pendingCalls.get(username.toLowerCase());
         if (call == null) {
             return null;
         }
-        // Check if expired
+        // Check if expired — auto-cleanup
         if (Instant.now().toEpochMilli() - call.timestamp > EXPIRY_MS) {
+            pendingCalls.remove(username.toLowerCase());
             return null;
         }
         return call;
+    }
+
+    /**
+     * Explicitly acknowledge/dismiss a pending call.
+     * Called when user taps the notification or the call is answered/rejected.
+     */
+    public void acknowledgePendingCall(String username) {
+        if (username != null) {
+            pendingCalls.remove(username.toLowerCase());
+        }
     }
 
     public void clearPendingCall(String username) {

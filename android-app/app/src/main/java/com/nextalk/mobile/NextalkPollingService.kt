@@ -1,6 +1,7 @@
 package com.nextalk.mobile
 
 import android.Manifest
+import android.app.AlarmManager
 import android.app.Notification
 import android.app.NotificationChannel
 import android.app.NotificationManager
@@ -14,6 +15,7 @@ import android.os.Build
 import android.os.Handler
 import android.os.IBinder
 import android.os.Looper
+import android.os.SystemClock
 import android.util.Log
 import androidx.core.app.NotificationCompat
 import androidx.core.app.NotificationManagerCompat
@@ -27,9 +29,15 @@ import java.net.URL
 import java.util.concurrent.Executors
 
 /**
- * Background polling service that checks for new messages and shows
- * system notifications even when the app is in the background.
- * FCM bypass — this is the primary notification mechanism.
+ * Background polling service that checks for new messages and incoming calls,
+ * showing system notifications even when the app is in the background or closed.
+ * 
+ * Key features:
+ * - Fast 3-second polling for near-real-time call and message delivery
+ * - Persistent visible foreground notification ("NexTalk is connected")
+ * - Self-restarts on task removal (user swipe) via AlarmManager
+ * - Call notification deduplication to avoid spamming
+ * - Acknowledges calls on the backend when user taps the notification
  */
 class NextalkPollingService : Service() {
 
@@ -39,7 +47,7 @@ class NextalkPollingService : Service() {
         private const val CHANNEL_MESSAGES = "nextalk_messages_v2"
         private const val CHANNEL_CALLS = "nextalk_calls_v2"
         private const val SERVICE_NOTIFICATION_ID = 99999
-        private const val POLL_INTERVAL_MS = 8000L // 8 seconds
+        private const val POLL_INTERVAL_MS = 3000L // 3 seconds for real-time calls & messages
         private const val PREFS_NAME = "nextalk_push_prefs"
         private const val PREF_AUTH_TOKEN = "auth_token"
         private const val PREF_BACKEND_ORIGIN = "backend_origin"
@@ -53,6 +61,10 @@ class NextalkPollingService : Service() {
     private var lastSeenTimestamps = mutableMapOf<String, String>()
     private var currentUsername = ""
 
+    // Call deduplication — track which call we already notified about
+    private var lastNotifiedCallFrom: String? = null
+    private var lastNotifiedCallTimestamp: Long = 0L
+
     private val pollRunnable = object : Runnable {
         override fun run() {
             if (!isPolling) return
@@ -63,7 +75,7 @@ class NextalkPollingService : Service() {
 
     override fun onCreate() {
         super.onCreate()
-        createServiceChannel()
+        createNotificationChannels()
         loadLastSeenTimestamps()
     }
 
@@ -85,11 +97,42 @@ class NextalkPollingService : Service() {
         super.onDestroy()
     }
 
+    /**
+     * Called when user swipes the app away from recents.
+     * Schedule a restart via AlarmManager so the service comes back.
+     */
+    override fun onTaskRemoved(rootIntent: Intent?) {
+        super.onTaskRemoved(rootIntent)
+        scheduleServiceRestart()
+    }
+
+    private fun scheduleServiceRestart() {
+        try {
+            val restartIntent = Intent(applicationContext, NextalkPollingService::class.java)
+            val pendingIntent = PendingIntent.getService(
+                applicationContext,
+                1,
+                restartIntent,
+                PendingIntent.FLAG_ONE_SHOT or PendingIntent.FLAG_IMMUTABLE
+            )
+
+            val alarmManager = getSystemService(Context.ALARM_SERVICE) as? AlarmManager
+            alarmManager?.set(
+                AlarmManager.ELAPSED_REALTIME_WAKEUP,
+                SystemClock.elapsedRealtime() + 3000, // Restart in 3 seconds
+                pendingIntent
+            )
+            Log.d(TAG, "Scheduled service restart via AlarmManager")
+        } catch (e: Exception) {
+            Log.d(TAG, "Failed to schedule restart: ${e.message}")
+        }
+    }
+
     private fun startPolling() {
         if (isPolling) return
         isPolling = true
         handler.post(pollRunnable)
-        Log.d(TAG, "Polling started")
+        Log.d(TAG, "Polling started (interval: ${POLL_INTERVAL_MS}ms)")
     }
 
     private fun stopPolling() {
@@ -98,18 +141,18 @@ class NextalkPollingService : Service() {
         Log.d(TAG, "Polling stopped")
     }
 
-    private fun createServiceChannel() {
+    private fun createNotificationChannels() {
         val manager = getSystemService(NotificationManager::class.java)
 
-        // Silent service channel — invisible to user
+        // Service channel — LOW priority visible notification ("always running")
         val serviceChannel = NotificationChannel(
             CHANNEL_SERVICE,
-            "NexTalk Background",
-            NotificationManager.IMPORTANCE_NONE
+            "NexTalk Connection",
+            NotificationManager.IMPORTANCE_LOW
         ).apply {
-            description = "Background connection"
+            description = "Shows that NexTalk is connected and running"
             setShowBadge(false)
-            lockscreenVisibility = Notification.VISIBILITY_SECRET
+            lockscreenVisibility = Notification.VISIBILITY_PUBLIC
         }
         manager.createNotificationChannel(serviceChannel)
 
@@ -126,7 +169,7 @@ class NextalkPollingService : Service() {
         }
         manager.createNotificationChannel(msgChannel)
 
-        // Call notification channel
+        // Call notification channel — high priority
         val callChannel = NotificationChannel(
             CHANNEL_CALLS,
             "Calls",
@@ -149,12 +192,11 @@ class NextalkPollingService : Service() {
 
         return NotificationCompat.Builder(this, CHANNEL_SERVICE)
             .setContentTitle("NexTalk")
-            .setContentText("Running")
+            .setContentText("Connected — receiving messages and calls")
             .setSmallIcon(android.R.drawable.stat_notify_chat)
             .setOngoing(true)
             .setSilent(true)
-            .setPriority(NotificationCompat.PRIORITY_MIN)
-            .setForegroundServiceBehavior(NotificationCompat.FOREGROUND_SERVICE_DEFERRED)
+            .setPriority(NotificationCompat.PRIORITY_LOW)
             .setContentIntent(pendingIntent)
             .build()
     }
@@ -176,11 +218,11 @@ class NextalkPollingService : Service() {
                 return
             }
 
+            // Poll for pending calls (higher priority — do first)
+            pollPendingCalls(backendOrigin, authToken)
+
             // Poll for new messages
             pollMessages(backendOrigin, authToken)
-
-            // Poll for pending calls
-            pollPendingCalls(backendOrigin, authToken)
         } catch (e: Exception) {
             Log.d(TAG, "Poll error: ${e.message}")
         }
@@ -193,8 +235,8 @@ class NextalkPollingService : Service() {
             connection.requestMethod = "GET"
             connection.setRequestProperty("Authorization", "Bearer $authToken")
             connection.setRequestProperty("Content-Type", "application/json")
-            connection.connectTimeout = 8000
-            connection.readTimeout = 8000
+            connection.connectTimeout = 5000
+            connection.readTimeout = 5000
 
             val responseCode = connection.responseCode
             if (responseCode != 200) {
@@ -239,7 +281,18 @@ class NextalkPollingService : Service() {
             if (hasPendingCall) {
                 val fromUsername = json.optString("fromUsername", "Unknown")
                 val videoEnabled = json.optBoolean("videoEnabled", false)
-                showCallNotification(fromUsername, videoEnabled)
+                val timestamp = json.optLong("timestamp", 0L)
+
+                // Deduplicate: only show notification once per unique call
+                if (fromUsername != lastNotifiedCallFrom || timestamp != lastNotifiedCallTimestamp) {
+                    lastNotifiedCallFrom = fromUsername
+                    lastNotifiedCallTimestamp = timestamp
+                    showCallNotification(fromUsername, videoEnabled)
+                }
+            } else {
+                // No pending call — reset dedup tracking
+                lastNotifiedCallFrom = null
+                lastNotifiedCallTimestamp = 0L
             }
         } catch (e: Exception) {
             Log.d(TAG, "Call poll error: ${e.message}")
@@ -285,8 +338,40 @@ class NextalkPollingService : Service() {
         try {
             NotificationManagerCompat.from(this).notify(notificationId, builder.build())
             Log.d(TAG, "Call notification: $fromUsername ($callType)")
+
+            // Acknowledge the call on the backend so it gets cleared
+            acknowledgeCallOnBackend(fromUsername)
         } catch (e: SecurityException) {
             Log.d(TAG, "Notification permission denied")
+        }
+    }
+
+    /**
+     * Acknowledge the pending call on the backend to clear it.
+     * This runs after we've shown the notification so the user sees it.
+     */
+    private fun acknowledgeCallOnBackend(fromUsername: String) {
+        try {
+            val prefs = getSharedPreferences(PREFS_NAME, MODE_PRIVATE)
+            val authToken = prefs.getString(PREF_AUTH_TOKEN, "") ?: ""
+            val backendOrigin = prefs.getString(PREF_BACKEND_ORIGIN, "") ?: ""
+            if (authToken.isBlank() || backendOrigin.isBlank()) return
+
+            val url = URL("$backendOrigin/api/calls/pending/acknowledge")
+            val connection = url.openConnection() as HttpURLConnection
+            connection.requestMethod = "POST"
+            connection.setRequestProperty("Authorization", "Bearer $authToken")
+            connection.setRequestProperty("Content-Type", "application/json")
+            connection.connectTimeout = 5000
+            connection.readTimeout = 5000
+            connection.doOutput = true
+            connection.outputStream.use { it.write("{}".toByteArray()) }
+
+            val responseCode = connection.responseCode
+            Log.d(TAG, "Acknowledge call response: $responseCode")
+            connection.disconnect()
+        } catch (e: Exception) {
+            Log.d(TAG, "Acknowledge call error: ${e.message}")
         }
     }
 
