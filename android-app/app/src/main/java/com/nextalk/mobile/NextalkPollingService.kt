@@ -87,14 +87,19 @@ class NextalkPollingService : Service() {
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
-        val notification = buildServiceNotification()
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
-            startForeground(SERVICE_NOTIFICATION_ID, notification, ServiceInfo.FOREGROUND_SERVICE_TYPE_DATA_SYNC)
-        } else {
-            startForeground(SERVICE_NOTIFICATION_ID, notification)
+        try {
+            val notification = buildServiceNotification()
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
+                startForeground(SERVICE_NOTIFICATION_ID, notification, ServiceInfo.FOREGROUND_SERVICE_TYPE_DATA_SYNC)
+            } else {
+                startForeground(SERVICE_NOTIFICATION_ID, notification)
+            }
+            acquireWakeLock()
+            startPolling()
+        } catch (e: Exception) {
+            Log.e(TAG, "onStartCommand error: ${e.message}", e)
+            stopSelf()
         }
-        acquireWakeLock()
-        startPolling()
         return START_STICKY
     }
 

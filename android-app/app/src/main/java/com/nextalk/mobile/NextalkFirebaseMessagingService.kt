@@ -8,6 +8,7 @@ import android.content.Intent
 import android.content.pm.PackageManager
 import android.os.Build
 import android.os.SystemClock
+import android.util.Log
 import androidx.core.app.NotificationCompat
 import androidx.core.app.NotificationManagerCompat
 import androidx.core.content.ContextCompat
@@ -18,89 +19,88 @@ import java.net.URL
 import java.util.concurrent.ConcurrentHashMap
 import org.json.JSONObject
 
+/**
+ * Handles FCM push messages for chat messages ONLY.
+ *
+ * Call notifications are handled entirely by NextalkPollingService
+ * to avoid duplicate/conflicting call UIs.
+ *
+ * All methods are wrapped in try-catch to prevent any FCM error
+ * from crashing the host application.
+ */
 class NextalkFirebaseMessagingService : FirebaseMessagingService() {
 
     companion object {
+        private const val TAG = "NextalkFCM"
         private const val CHANNEL_MESSAGES = "nextalk_messages_v2"
-        private const val CHANNEL_CALLS = "nextalk_calls_v2"
         private const val DEDUPE_WINDOW_MS = 3000L
         private val recentMessageSignals = ConcurrentHashMap<String, Long>()
     }
 
     override fun onMessageReceived(message: RemoteMessage) {
-        super.onMessageReceived(message)
+        try {
+            super.onMessageReceived(message)
+            ensureChannels()
 
-        ensureChannels()
+            val data = message.data
+            val type = data["type"] ?: "message"
 
-        val data = message.data
-        val type = data["type"] ?: "message"
-        // Data-only payloads: title and body are in the data map
-        val title = data["title"]?.takeIf { it.isNotBlank() }
-            ?: message.notification?.title
-            ?: if (type == "call") "Incoming call" else "New message"
-        val body = data["body"]?.takeIf { it.isNotBlank() }
-            ?: message.notification?.body
-            ?: if (type == "call") "Someone is calling you" else "You have a new message"
-        val notificationTag = buildNotificationTag(type, data)
+            // Skip call notifications — NextalkPollingService handles those
+            if (type == "call") {
+                Log.d(TAG, "Ignoring call FCM — polling service handles calls")
+                return
+            }
 
-        val dedupeId = message.messageId
-            ?: data["messageId"]
-            ?: data["callId"]
-            ?: "$notificationTag|$title|$body"
+            val title = data["title"]?.takeIf { it.isNotBlank() }
+                ?: message.notification?.title
+                ?: "New message"
+            val body = data["body"]?.takeIf { it.isNotBlank() }
+                ?: message.notification?.body
+                ?: "You have a new message"
+            val notificationTag = "msg-${data["conversationId"] ?: "default"}"
 
-        if (shouldSkipDuplicate(dedupeId)) {
-            return
+            val dedupeId = message.messageId
+                ?: data["messageId"]
+                ?: "$notificationTag|$title|$body"
+
+            if (shouldSkipDuplicate(dedupeId)) {
+                return
+            }
+
+            showMessageNotification(title, body, notificationTag, data)
+        } catch (e: Exception) {
+            Log.e(TAG, "onMessageReceived error: ${e.message}", e)
         }
-
-        showNotification(type, title, body, notificationTag, data)
     }
 
     override fun onNewToken(token: String) {
-        super.onNewToken(token)
-        if (token.isBlank()) {
-            return
-        }
+        try {
+            super.onNewToken(token)
+            if (token.isBlank()) return
 
-        // Keep backend token mapping fresh even when app process is recreated in background.
-        val (authToken, backendOrigin) = MainActivity.loadPushRegistrationContext(applicationContext)
-        if (authToken.isBlank() || backendOrigin.isBlank()) {
-            return
-        }
+            val (authToken, backendOrigin) = MainActivity.loadPushRegistrationContext(applicationContext)
+            if (authToken.isBlank() || backendOrigin.isBlank()) return
 
-        postToken(backendOrigin.trimEnd('/'), authToken, token)
+            postToken(backendOrigin.trimEnd('/'), authToken, token)
+        } catch (e: Exception) {
+            Log.e(TAG, "onNewToken error: ${e.message}", e)
+        }
     }
 
     private fun ensureChannels() {
-        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O) {
-            return
-        }
-
-        val manager = getSystemService(NotificationManager::class.java) ?: return
-
-        val messageChannel = NotificationChannel(
-            CHANNEL_MESSAGES,
-            "NexTalk Messages",
-            NotificationManager.IMPORTANCE_HIGH
-        ).apply {
-            description = "NexTalk chat message notifications"
-        }
-
-        val callChannel = NotificationChannel(
-            CHANNEL_CALLS,
-            "NexTalk Calls",
-            NotificationManager.IMPORTANCE_HIGH
-        ).apply {
-            description = "NexTalk incoming call notifications"
-        }
-
-        manager.createNotificationChannels(listOf(messageChannel, callChannel))
-    }
-
-    private fun buildNotificationTag(type: String, data: Map<String, String>): String {
-        return if (type == "call") {
-            "call-${data["fromUsername"] ?: "incoming"}"
-        } else {
-            "msg-${data["conversationId"] ?: "default"}"
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O) return
+        try {
+            val manager = getSystemService(NotificationManager::class.java) ?: return
+            val messageChannel = NotificationChannel(
+                CHANNEL_MESSAGES,
+                "NexTalk Messages",
+                NotificationManager.IMPORTANCE_HIGH
+            ).apply {
+                description = "NexTalk chat message notifications"
+            }
+            manager.createNotificationChannel(messageChannel)
+        } catch (e: Exception) {
+            Log.e(TAG, "ensureChannels error: ${e.message}", e)
         }
     }
 
@@ -116,79 +116,21 @@ class NextalkFirebaseMessagingService : FirebaseMessagingService() {
         return previous > 0L && (now - previous) < DEDUPE_WINDOW_MS
     }
 
-    private fun showNotification(type: String, title: String, body: String, tag: String, data: Map<String, String>) {
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-            val granted = ContextCompat.checkSelfPermission(
-                this,
-                Manifest.permission.POST_NOTIFICATIONS
-            ) == PackageManager.PERMISSION_GRANTED
-            if (!granted) {
-                return
-            }
-        }
-
-        val channelId = data["channelId"]?.takeIf { it.isNotBlank() }
-            ?: if (type == "call") CHANNEL_CALLS else CHANNEL_MESSAGES
-        val notificationId = (tag.hashCode() and 0x7fffffff)
-
-        if (type == "call") {
-            val fromUsername = data["fromUsername"] ?: title
-            val videoEnabled = data["videoEnabled"]?.toBooleanStrictOrNull() ?: false
-
-            // Full-screen intent for IncomingCallActivity (launched by notification system)
-            val callActivityIntent = Intent(this, IncomingCallActivity::class.java).apply {
-                flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP
-                putExtra(IncomingCallActivity.EXTRA_CALLER, fromUsername)
-                putExtra(IncomingCallActivity.EXTRA_VIDEO, videoEnabled)
+    private fun showMessageNotification(title: String, body: String, tag: String, data: Map<String, String>) {
+        try {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+                val granted = ContextCompat.checkSelfPermission(
+                    this, Manifest.permission.POST_NOTIFICATIONS
+                ) == PackageManager.PERMISSION_GRANTED
+                if (!granted) return
             }
 
-            val fullScreenPendingIntent = PendingIntent.getActivity(
-                this, notificationId, callActivityIntent,
-                PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
-            )
+            val channelId = data["channelId"]?.takeIf { it.isNotBlank() } ?: CHANNEL_MESSAGES
+            val notificationId = (tag.hashCode() and 0x7fffffff)
 
-            // Answer action
-            val answerIntent = Intent(this, CallActionReceiver::class.java).apply {
-                action = IncomingCallActivity.ACTION_ANSWER
-                putExtra(IncomingCallActivity.EXTRA_CALLER, fromUsername)
-                putExtra(IncomingCallActivity.EXTRA_VIDEO, videoEnabled)
-            }
-            val answerPendingIntent = PendingIntent.getBroadcast(
-                this, notificationId + 1, answerIntent,
-                PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
-            )
-
-            // Decline action
-            val declineIntent = Intent(this, CallActionReceiver::class.java).apply {
-                action = IncomingCallActivity.ACTION_DECLINE
-                putExtra(IncomingCallActivity.EXTRA_CALLER, fromUsername)
-                putExtra(IncomingCallActivity.EXTRA_VIDEO, videoEnabled)
-            }
-            val declinePendingIntent = PendingIntent.getBroadcast(
-                this, notificationId + 2, declineIntent,
-                PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
-            )
-
-            val builder = NotificationCompat.Builder(this, channelId)
-                .setSmallIcon(android.R.drawable.stat_sys_phone_call)
-                .setContentTitle(fromUsername)
-                .setContentText(body)
-                .setContentIntent(fullScreenPendingIntent)
-                .setFullScreenIntent(fullScreenPendingIntent, true)
-                .setPriority(NotificationCompat.PRIORITY_MAX)
-                .setCategory(NotificationCompat.CATEGORY_CALL)
-                .setVisibility(NotificationCompat.VISIBILITY_PUBLIC)
-                .setOngoing(true)
-                .setSilent(true) // IncomingCallActivity handles ringtone/vibration
-                .addAction(android.R.drawable.sym_action_call, "Answer", answerPendingIntent)
-                .addAction(android.R.drawable.ic_menu_close_clear_cancel, "Decline", declinePendingIntent)
-
-            NotificationManagerCompat.from(this).notify(notificationId, builder.build())
-        } else {
-            // Message notification (unchanged logic)
             val intent = Intent(this, MainActivity::class.java).apply {
                 flags = Intent.FLAG_ACTIVITY_CLEAR_TOP or Intent.FLAG_ACTIVITY_SINGLE_TOP
-                putExtra("nextalk_notification_type", type)
+                putExtra("nextalk_notification_type", "message")
                 putExtra("nextalk_notification_tag", tag)
                 putExtra("nextalk_notification_conversation", data["conversationId"] ?: "")
                 putExtra("nextalk_notification_from", data["fromUsername"] ?: "")
@@ -212,6 +154,8 @@ class NextalkFirebaseMessagingService : FirebaseMessagingService() {
                 .setCategory(NotificationCompat.CATEGORY_MESSAGE)
 
             NotificationManagerCompat.from(this).notify(notificationId, builder.build())
+        } catch (e: Exception) {
+            Log.e(TAG, "showMessageNotification error: ${e.message}", e)
         }
     }
 

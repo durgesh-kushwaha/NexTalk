@@ -2813,7 +2813,7 @@ init();
           return;
         }
         try {
-          const users = await api.get(`/users/search?query=${encodeURIComponent(query)}`);
+          const users = await api.get(`/users/search?q=${encodeURIComponent(query)}`);
           renderParticipantUsers(users || []);
         } catch (error) {
           participantSearchResults.innerHTML = '<div class="placeholder">Search failed</div>';

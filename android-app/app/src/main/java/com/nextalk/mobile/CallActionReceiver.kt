@@ -1,6 +1,7 @@
 package com.nextalk.mobile
 
 import android.app.NotificationManager
+import android.app.PendingIntent
 import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
@@ -8,8 +9,10 @@ import android.util.Log
 
 /**
  * Handles Answer/Decline action buttons from the call notification.
- * When user interacts with notification actions (instead of the full-screen UI),
- * this receiver routes the actions appropriately.
+ * All actions are wrapped in try-catch to prevent crash from BroadcastReceiver context.
+ *
+ * On Android 10+ starting an Activity from a BroadcastReceiver is restricted,
+ * so we use PendingIntent.send() for reliability.
  */
 class CallActionReceiver : BroadcastReceiver() {
 
@@ -18,21 +21,68 @@ class CallActionReceiver : BroadcastReceiver() {
     }
 
     override fun onReceive(context: Context, intent: Intent) {
-        val action = intent.action ?: return
-        val callerUsername = intent.getStringExtra(IncomingCallActivity.EXTRA_CALLER) ?: "Unknown"
-        val videoEnabled = intent.getBooleanExtra(IncomingCallActivity.EXTRA_VIDEO, false)
+        try {
+            val action = intent.action ?: return
+            val callerUsername = intent.getStringExtra(IncomingCallActivity.EXTRA_CALLER) ?: "Unknown"
+            val videoEnabled = intent.getBooleanExtra(IncomingCallActivity.EXTRA_VIDEO, false)
 
-        Log.d(TAG, "Received action: $action from $callerUsername")
+            Log.d(TAG, "Received action: $action from $callerUsername")
 
-        // Cancel the notification
-        val notificationId = ("poll-call-$callerUsername".hashCode()) and 0x7fffffff
-        val notificationManager = context.getSystemService(Context.NOTIFICATION_SERVICE) as? NotificationManager
-        notificationManager?.cancel(notificationId)
+            // Cancel the call notification (try both tag formats for safety)
+            cancelCallNotification(context, callerUsername)
 
-        when (action) {
-            IncomingCallActivity.ACTION_ANSWER -> {
-                // Launch MainActivity with call extras
-                val mainIntent = Intent(context, MainActivity::class.java).apply {
+            // Close the IncomingCallActivity if it's visible
+            sendFinishBroadcast(context)
+
+            when (action) {
+                IncomingCallActivity.ACTION_ANSWER -> {
+                    launchMainActivityForCall(context, callerUsername, videoEnabled)
+                }
+                IncomingCallActivity.ACTION_DECLINE -> {
+                    acknowledgeCallAsync(context)
+                }
+            }
+        } catch (e: Exception) {
+            Log.e(TAG, "onReceive error: ${e.message}", e)
+        }
+    }
+
+    private fun cancelCallNotification(context: Context, callerUsername: String) {
+        try {
+            val notificationManager = context.getSystemService(Context.NOTIFICATION_SERVICE) as? NotificationManager
+            // Cancel using the poll-call tag (used by NextalkPollingService)
+            val pollNotificationId = ("poll-call-$callerUsername".hashCode()) and 0x7fffffff
+            notificationManager?.cancel(pollNotificationId)
+        } catch (e: Exception) {
+            Log.e(TAG, "Cancel notification error: ${e.message}", e)
+        }
+    }
+
+    private fun launchMainActivityForCall(context: Context, callerUsername: String, videoEnabled: Boolean) {
+        try {
+            val mainIntent = Intent(context, MainActivity::class.java).apply {
+                flags = Intent.FLAG_ACTIVITY_NEW_TASK or
+                        Intent.FLAG_ACTIVITY_CLEAR_TOP or
+                        Intent.FLAG_ACTIVITY_SINGLE_TOP
+                putExtra("nextalk_incoming_call", true)
+                putExtra("nextalk_call_from", callerUsername)
+                putExtra("nextalk_call_video", videoEnabled)
+            }
+
+            // Use PendingIntent.send() for reliability on Android 10+
+            // Direct startActivity() from BroadcastReceiver crashes
+            val pendingIntent = PendingIntent.getActivity(
+                context,
+                System.currentTimeMillis().toInt(),
+                mainIntent,
+                PendingIntent.FLAG_ONE_SHOT or PendingIntent.FLAG_IMMUTABLE
+            )
+            pendingIntent.send()
+        } catch (e: Exception) {
+            Log.e(TAG, "Launch MainActivity error: ${e.message}", e)
+            // Fallback: try direct startActivity as last resort
+            try {
+                val fallbackIntent = Intent(context, MainActivity::class.java).apply {
                     flags = Intent.FLAG_ACTIVITY_NEW_TASK or
                             Intent.FLAG_ACTIVITY_CLEAR_TOP or
                             Intent.FLAG_ACTIVITY_SINGLE_TOP
@@ -40,26 +90,21 @@ class CallActionReceiver : BroadcastReceiver() {
                     putExtra("nextalk_call_from", callerUsername)
                     putExtra("nextalk_call_video", videoEnabled)
                 }
-                context.startActivity(mainIntent)
-
-                // Close any existing IncomingCallActivity
-                sendFinishBroadcast(context)
-            }
-            IncomingCallActivity.ACTION_DECLINE -> {
-                // Acknowledge call on backend
-                acknowledgeCallAsync(context)
-
-                // Close any existing IncomingCallActivity
-                sendFinishBroadcast(context)
+                context.startActivity(fallbackIntent)
+            } catch (fallbackError: Exception) {
+                Log.e(TAG, "Fallback launch also failed: ${fallbackError.message}", fallbackError)
             }
         }
     }
 
     private fun sendFinishBroadcast(context: Context) {
-        // Send a broadcast to close the IncomingCallActivity if it's open
-        val finishIntent = Intent("com.nextalk.mobile.FINISH_INCOMING_CALL")
-        finishIntent.setPackage(context.packageName)
-        context.sendBroadcast(finishIntent)
+        try {
+            val finishIntent = Intent("com.nextalk.mobile.FINISH_INCOMING_CALL")
+            finishIntent.setPackage(context.packageName)
+            context.sendBroadcast(finishIntent)
+        } catch (e: Exception) {
+            Log.e(TAG, "sendFinishBroadcast error: ${e.message}", e)
+        }
     }
 
     private fun acknowledgeCallAsync(context: Context) {
