@@ -3147,7 +3147,7 @@ init();
     }
     createGroupSubmitBtn.disabled = true;
     try {
-      const result = await api.post('/conversations/group', {
+      const result = await api.post('/conversations/groups', {
         name,
         participantIds: selectedGroupMembers.map((m) => m.id),
       });

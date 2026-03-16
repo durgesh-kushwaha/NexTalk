@@ -49,7 +49,7 @@ public class ConversationController {
     }
 
     @SuppressWarnings("unchecked")
-    @PostMapping("/group")
+    @PostMapping({"/group", "/groups"})
     public ResponseEntity<ConversationDTO> createGroup(
             @RequestBody Map<String, Object> body,
             @AuthenticationPrincipal UserDetails currentUser) {

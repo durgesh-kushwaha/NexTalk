@@ -65,8 +65,6 @@ class MainActivity : AppCompatActivity() {
     private var pendingWebPermissionRequest: PermissionRequest? = null
     private var incomingRingtone: Ringtone? = null
     private var videoCallActive: Boolean = false
-    private var webViewReady: Boolean = false
-    private var pendingCallIntent: Intent? = null
     private val networkExecutor = Executors.newSingleThreadExecutor()
 
     inner class AndroidBridge {
@@ -409,16 +407,6 @@ class MainActivity : AppCompatActivity() {
                 request: WebResourceRequest?
             ): Boolean {
                 return false
-            }
-
-            override fun onPageFinished(view: WebView?, url: String?) {
-                super.onPageFinished(view, url)
-                webViewReady = true
-                // If we have a pending call intent, process it now
-                pendingCallIntent?.let { callIntent ->
-                    pendingCallIntent = null
-                    checkIncomingCallIntent(callIntent)
-                }
             }
         }
 
@@ -779,38 +767,12 @@ class MainActivity : AppCompatActivity() {
         intent.removeExtra("nextalk_call_from")
         intent.removeExtra("nextalk_call_video")
 
+        // Wait a moment for WebView to be ready, then trigger the incoming call screen
         if (!::webView.isInitialized) return
-
-        // If WebView hasn't finished loading, store intent for later
-        if (!webViewReady) {
-            pendingCallIntent = Intent().apply {
-                putExtra("nextalk_incoming_call", true)
-                putExtra("nextalk_call_from", fromUsername)
-                putExtra("nextalk_call_video", videoEnabled)
-            }
-            return
-        }
-
-        // Wait for WebView JS (WebRTC) to be ready with retry
-        scheduleCallHandlerWithRetry(fromUsername, videoEnabled, 0)
-    }
-
-    private fun scheduleCallHandlerWithRetry(fromUsername: String, videoEnabled: Boolean, attempt: Int) {
-        if (attempt > 5 || !::webView.isInitialized) return
-        val delay = if (attempt == 0) 1000L else 2000L
         webView.postDelayed({
-            val safeUsername = fromUsername.replace("'", "\\'")
-            val checkJs = "!!(window.webRTC)"
-            webView.evaluateJavascript(checkJs) { result ->
-                if (result == "true") {
-                    val callJs = "window.nextalkHandleIncomingCall && window.nextalkHandleIncomingCall('$safeUsername', $videoEnabled);"
-                    webView.evaluateJavascript(callJs, null)
-                } else {
-                    // Retry — WebRTC not ready yet
-                    scheduleCallHandlerWithRetry(fromUsername, videoEnabled, attempt + 1)
-                }
-            }
-        }, delay)
+            val js = "window.nextalkHandleIncomingCall && window.nextalkHandleIncomingCall('${fromUsername.replace("'", "\\'")}', $videoEnabled);"
+            webView.evaluateJavascript(js, null)
+        }, 1500) // Delay to let WebView + STOMP connect
     }
 
     private fun triggerNativePushRegistrationInWebView() {
