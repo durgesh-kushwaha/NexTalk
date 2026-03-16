@@ -131,41 +131,93 @@ class NextalkFirebaseMessagingService : FirebaseMessagingService() {
             ?: if (type == "call") CHANNEL_CALLS else CHANNEL_MESSAGES
         val notificationId = (tag.hashCode() and 0x7fffffff)
 
-        val intent = Intent(this, MainActivity::class.java).apply {
-            flags = Intent.FLAG_ACTIVITY_CLEAR_TOP or Intent.FLAG_ACTIVITY_SINGLE_TOP
-            putExtra("nextalk_notification_type", type)
-            putExtra("nextalk_notification_tag", tag)
-            putExtra("nextalk_notification_conversation", data["conversationId"] ?: "")
-            putExtra("nextalk_notification_from", data["fromUsername"] ?: "")
-        }
-
-        val pendingIntent = PendingIntent.getActivity(
-            this,
-            notificationId,
-            intent,
-            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
-        )
-
-        val builder = NotificationCompat.Builder(this, channelId)
-            .setSmallIcon(android.R.drawable.stat_notify_chat)
-            .setContentTitle(title)
-            .setContentText(body)
-            .setStyle(NotificationCompat.BigTextStyle().bigText(body))
-            .setContentIntent(pendingIntent)
-            .setAutoCancel(true)
-            .setPriority(NotificationCompat.PRIORITY_HIGH)
-            .setOnlyAlertOnce(true)
-            .setDefaults(NotificationCompat.DEFAULT_ALL)
-
         if (type == "call") {
-            builder
-                .setCategory(NotificationCompat.CATEGORY_CALL)
-                .setFullScreenIntent(pendingIntent, !MainActivity.isAppInForeground)
-        } else {
-            builder.setCategory(NotificationCompat.CATEGORY_MESSAGE)
-        }
+            val fromUsername = data["fromUsername"] ?: title
+            val videoEnabled = data["videoEnabled"]?.toBooleanStrictOrNull() ?: false
 
-        NotificationManagerCompat.from(this).notify(notificationId, builder.build())
+            // Launch full-screen IncomingCallActivity directly
+            val callActivityIntent = Intent(this, IncomingCallActivity::class.java).apply {
+                flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP
+                putExtra(IncomingCallActivity.EXTRA_CALLER, fromUsername)
+                putExtra(IncomingCallActivity.EXTRA_VIDEO, videoEnabled)
+            }
+
+            try {
+                startActivity(callActivityIntent)
+            } catch (_: Exception) {
+            }
+
+            val fullScreenPendingIntent = PendingIntent.getActivity(
+                this, notificationId, callActivityIntent,
+                PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+            )
+
+            // Answer action
+            val answerIntent = Intent(this, CallActionReceiver::class.java).apply {
+                action = IncomingCallActivity.ACTION_ANSWER
+                putExtra(IncomingCallActivity.EXTRA_CALLER, fromUsername)
+                putExtra(IncomingCallActivity.EXTRA_VIDEO, videoEnabled)
+            }
+            val answerPendingIntent = PendingIntent.getBroadcast(
+                this, notificationId + 1, answerIntent,
+                PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+            )
+
+            // Decline action
+            val declineIntent = Intent(this, CallActionReceiver::class.java).apply {
+                action = IncomingCallActivity.ACTION_DECLINE
+                putExtra(IncomingCallActivity.EXTRA_CALLER, fromUsername)
+                putExtra(IncomingCallActivity.EXTRA_VIDEO, videoEnabled)
+            }
+            val declinePendingIntent = PendingIntent.getBroadcast(
+                this, notificationId + 2, declineIntent,
+                PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+            )
+
+            val builder = NotificationCompat.Builder(this, channelId)
+                .setSmallIcon(android.R.drawable.stat_sys_phone_call)
+                .setContentTitle(fromUsername)
+                .setContentText(body)
+                .setContentIntent(fullScreenPendingIntent)
+                .setFullScreenIntent(fullScreenPendingIntent, true)
+                .setPriority(NotificationCompat.PRIORITY_MAX)
+                .setCategory(NotificationCompat.CATEGORY_CALL)
+                .setVisibility(NotificationCompat.VISIBILITY_PUBLIC)
+                .setOngoing(true)
+                .setSilent(true) // IncomingCallActivity handles ringtone/vibration
+                .addAction(android.R.drawable.sym_action_call, "Answer", answerPendingIntent)
+                .addAction(android.R.drawable.ic_menu_close_clear_cancel, "Decline", declinePendingIntent)
+
+            NotificationManagerCompat.from(this).notify(notificationId, builder.build())
+        } else {
+            // Message notification (unchanged logic)
+            val intent = Intent(this, MainActivity::class.java).apply {
+                flags = Intent.FLAG_ACTIVITY_CLEAR_TOP or Intent.FLAG_ACTIVITY_SINGLE_TOP
+                putExtra("nextalk_notification_type", type)
+                putExtra("nextalk_notification_tag", tag)
+                putExtra("nextalk_notification_conversation", data["conversationId"] ?: "")
+                putExtra("nextalk_notification_from", data["fromUsername"] ?: "")
+            }
+
+            val pendingIntent = PendingIntent.getActivity(
+                this, notificationId, intent,
+                PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+            )
+
+            val builder = NotificationCompat.Builder(this, channelId)
+                .setSmallIcon(android.R.drawable.stat_notify_chat)
+                .setContentTitle(title)
+                .setContentText(body)
+                .setStyle(NotificationCompat.BigTextStyle().bigText(body))
+                .setContentIntent(pendingIntent)
+                .setAutoCancel(true)
+                .setPriority(NotificationCompat.PRIORITY_HIGH)
+                .setOnlyAlertOnce(true)
+                .setDefaults(NotificationCompat.DEFAULT_ALL)
+                .setCategory(NotificationCompat.CATEGORY_MESSAGE)
+
+            NotificationManagerCompat.from(this).notify(notificationId, builder.build())
+        }
     }
 
     private fun postToken(baseOrigin: String, authToken: String, fcmToken: String) {

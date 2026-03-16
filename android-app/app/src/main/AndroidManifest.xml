@@ -12,6 +12,7 @@
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_DATA_SYNC" />
     <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
     <uses-permission android:name="android.permission.WAKE_LOCK" />
+    <uses-permission android:name="android.permission.USE_FULL_SCREEN_INTENT" />
 
     <uses-feature
         android:name="android.hardware.camera"
@@ -41,6 +42,17 @@
             </intent-filter>
         </activity>
 
+        <!-- Full-screen incoming call Activity -->
+        <activity
+            android:name=".IncomingCallActivity"
+            android:theme="@style/Theme.NexTalk.IncomingCall"
+            android:excludeFromRecents="true"
+            android:launchMode="singleTop"
+            android:showOnLockScreen="true"
+            android:turnScreenOn="true"
+            android:showWhenLocked="true"
+            android:exported="false" />
+
         <service
             android:name=".NextalkFirebaseMessagingService"
             android:exported="false">
@@ -53,6 +65,16 @@
             android:name=".NextalkPollingService"
             android:exported="false"
             android:foregroundServiceType="dataSync" />
+
+        <!-- Handles Answer/Decline notification actions for calls -->
+        <receiver
+            android:name=".CallActionReceiver"
+            android:exported="false">
+            <intent-filter>
+                <action android:name="com.nextalk.mobile.ACTION_ANSWER_CALL" />
+                <action android:name="com.nextalk.mobile.ACTION_DECLINE_CALL" />
+            </intent-filter>
+        </receiver>
 
         <!-- Restart polling service after boot or app update -->
         <receiver
@@ -67,4 +89,3 @@
     </application>
 
 </manifest>
-

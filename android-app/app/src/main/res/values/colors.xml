@@ -1,4 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <color name="ic_launcher_background">#1FB5CF</color>
+    <color name="call_answer_green">#4CAF50</color>
+    <color name="call_decline_red">#F44336</color>
+    <color name="call_bg_dark">#1A1A2E</color>
 </resources>
