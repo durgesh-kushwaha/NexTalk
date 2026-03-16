@@ -135,16 +135,11 @@ class NextalkFirebaseMessagingService : FirebaseMessagingService() {
             val fromUsername = data["fromUsername"] ?: title
             val videoEnabled = data["videoEnabled"]?.toBooleanStrictOrNull() ?: false
 
-            // Launch full-screen IncomingCallActivity directly
+            // Full-screen intent for IncomingCallActivity (launched by notification system)
             val callActivityIntent = Intent(this, IncomingCallActivity::class.java).apply {
                 flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP
                 putExtra(IncomingCallActivity.EXTRA_CALLER, fromUsername)
                 putExtra(IncomingCallActivity.EXTRA_VIDEO, videoEnabled)
-            }
-
-            try {
-                startActivity(callActivityIntent)
-            } catch (_: Exception) {
             }
 
             val fullScreenPendingIntent = PendingIntent.getActivity(

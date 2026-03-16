@@ -348,21 +348,13 @@ class NextalkPollingService : Service() {
         val notificationId = ("poll-call-$fromUsername".hashCode()) and 0x7fffffff
         val callType = if (videoEnabled) "video" else "audio"
 
-        // Launch full-screen IncomingCallActivity directly
+        // Full-screen intent for IncomingCallActivity (launched by notification system)
         val fullScreenIntent = Intent(this, IncomingCallActivity::class.java).apply {
             flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP
             putExtra(IncomingCallActivity.EXTRA_CALLER, fromUsername)
             putExtra(IncomingCallActivity.EXTRA_VIDEO, videoEnabled)
         }
 
-        try {
-            startActivity(fullScreenIntent)
-            Log.d(TAG, "Launched IncomingCallActivity for $fromUsername ($callType)")
-        } catch (e: Exception) {
-            Log.d(TAG, "Failed to launch IncomingCallActivity: ${e.message}")
-        }
-
-        // Also post notification as fallback (for when activity can't show)
         val fullScreenPendingIntent = PendingIntent.getActivity(
             this, notificationId, fullScreenIntent,
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
@@ -400,13 +392,15 @@ class NextalkPollingService : Service() {
             .setCategory(NotificationCompat.CATEGORY_CALL)
             .setVisibility(NotificationCompat.VISIBILITY_PUBLIC)
             .setOngoing(true)
-            .setSilent(true) // Activity handles ringtone/vibration
             .addAction(android.R.drawable.sym_action_call, "Answer", answerPendingIntent)
             .addAction(android.R.drawable.ic_menu_close_clear_cancel, "Decline", declinePendingIntent)
 
         try {
             NotificationManagerCompat.from(this).notify(notificationId, builder.build())
             Log.d(TAG, "Call notification: $fromUsername ($callType)")
+
+            // Acknowledge the call on the backend so it gets cleared
+            acknowledgeCallOnBackend(fromUsername)
         } catch (e: SecurityException) {
             Log.d(TAG, "Notification permission denied")
         }

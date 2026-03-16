@@ -2255,6 +2255,23 @@ function sendSignal(signal) {
 window.sendSignal = sendSignal;
 
 document.getElementById('new-chat-btn').addEventListener('click', () => {
+  // If groups tab is active, open group creation modal instead
+  const groupsTabBtn = document.getElementById('tab-groups-btn');
+  if (groupsTabBtn && groupsTabBtn.classList.contains('active')) {
+    const createGroupModal = document.getElementById('create-group-modal');
+    if (createGroupModal) {
+      createGroupModal.classList.add('open');
+      const nameInput = document.getElementById('group-name-input');
+      if (nameInput) { nameInput.value = ''; nameInput.focus(); }
+      const memberSearch = document.getElementById('group-member-search-input');
+      if (memberSearch) memberSearch.value = '';
+      const memberResults = document.getElementById('group-member-search-results');
+      if (memberResults) memberResults.innerHTML = '';
+      const selectedEl = document.getElementById('selected-members');
+      if (selectedEl) selectedEl.innerHTML = '';
+    }
+    return;
+  }
   newChatModal.classList.add('open');
   userSearchResults.innerHTML = '';
   userSearchInput.value = '';

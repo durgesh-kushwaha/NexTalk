@@ -48,7 +48,6 @@
             android:theme="@style/Theme.NexTalk.IncomingCall"
             android:excludeFromRecents="true"
             android:launchMode="singleTop"
-            android:showOnLockScreen="true"
             android:turnScreenOn="true"
             android:showWhenLocked="true"
             android:exported="false" />
